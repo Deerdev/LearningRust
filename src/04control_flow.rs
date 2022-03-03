@@ -82,11 +82,15 @@ fn for_test() {
         println!("the value is: {}", element);
     }
 
+    // element 是一个指针 &i32
+    for element in a.iter() {
+        println!("the value is: {}", element);
+    }
+
     // range (1..4)
     // rev 反转
     for number in (1..4).rev() {
         println!("{}!", number);
     }
     println!("LIFTOFF!!!");
-}
 }
