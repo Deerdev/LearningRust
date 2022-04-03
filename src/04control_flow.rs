@@ -28,7 +28,7 @@ fn loop_test() {
         break;
     }
 
-    // 中断外层循环，通过 循环标签（loop label）
+    // 中断外层循环，通过 循环标签（loop label）: `'counting_up`
     let mut count = 0;
     'counting_up: loop {
         println!("count = {}", count);
@@ -91,6 +91,9 @@ fn for_test() {
     // rev 反转
     for number in (1..4).rev() {
         println!("{}!", number);
+        // 3!
+        // 2!
+        // 1!
     }
     println!("LIFTOFF!!!");
 }
