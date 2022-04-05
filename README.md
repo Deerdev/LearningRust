@@ -10,6 +10,8 @@
 - The Rust Programming Language: https://github.com/rust-lang/book
 - https://doc.rust-lang.org/book/
 
+# async
+- https://rust-lang.github.io/async-book/01_getting_started/02_why_async.html
 # exampe
 - https://rustwiki.org/zh-CN/rust-by-example/
 - https://doc.rust-lang.org/stable/rust-by-example/
