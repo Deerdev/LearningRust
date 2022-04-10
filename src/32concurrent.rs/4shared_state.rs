@@ -25,7 +25,7 @@
 // - 返回的是 MutexGuard （智能指针，实现了 Deref 和 Drop）
 use std::sync::Mutex;
 
-fn main() {
+fn main1() {
     let m = Mutex::new(5);
 
     {
@@ -41,7 +41,7 @@ fn main() {
 use std::sync::Mutex;
 use std::thread;
 
-fn main() {
+fn main2() {
     let counter = Mutex::new(0);
     let mut handles = vec![];
 
@@ -72,7 +72,7 @@ fn main() {
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-fn main() {
+fn main3() {
     // 不可变（可变）  Rc(RefCell)
     let counter = Arc::new(Mutex::new(0));
     let mut handles = vec![];

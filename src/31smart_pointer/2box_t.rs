@@ -14,7 +14,7 @@
 
 ///* 使用 Box<T> 在堆上储存数据
 //将一个单独的值存放在堆上并不是很有意义，所以这样单独使用 box 并不常见
-fn main() {
+fn main1() {
     let b = Box::new(5);
     println!("b = {}", b);
 }
@@ -37,7 +37,7 @@ enum List {
 
 use crate::List::{Cons, Nil};
 
-fn main() {
+fn main2() {
     let list = Cons(1, Cons(2, Cons(3, Nil)));
 }
 
@@ -55,14 +55,13 @@ enum Message {
 
 ///* 使用 Box<T> 给递归类型一个已知的大小
 // 明确：Cons 成员将会需要一个 i32 的大小加上储存 box 指针数据的空间
-enum List {
-    Cons(i32, Box<List>),
-    Nil,
-}
-
+// enum List {
+//     Cons(i32, Box<List>),
+//     Nil,
+// }
 use crate::List::{Cons, Nil};
 
-fn main() {
+fn main3() {
     let list = Cons(1, Box::new(Cons(2, Box::new(Cons(3, Box::new(Nil))))));
 }
 // box 只提供了间接存储和堆分配；他们并没有任何其他特殊的功能，比如我们将会见到的其他智能指针。它们也没有这些特殊功能带来的性能损失，所以他们可以用于像 cons list 这样间接存储是唯一所需功能的场景。

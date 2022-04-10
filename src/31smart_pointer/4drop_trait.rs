@@ -13,7 +13,7 @@ impl Drop for CustomSmartPointer {
     }
 }
 
-fn main() {
+fn main1() {
     let c = CustomSmartPointer {
         data: String::from("my stuff"),
     };
@@ -33,7 +33,7 @@ fn main() {
 // 然而，有时你可能需要提早清理某个值。一个例子是当使用智能指针管理锁时；你可能希望强制运行 drop 方法来释放锁以便作用域中的其他代码可以获取锁。
 // Rust 并不允许我们主动调用 Drop trait 的 drop 方法；当我们希望在作用域结束之前就强制释放变量的话，我们应该使用的是由标准库提供的 std::mem::drop。
 
-fn main() {
+fn main2() {
     let c = CustomSmartPointer {
         data: String::from("some data"),
     };

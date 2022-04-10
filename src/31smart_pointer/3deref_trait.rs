@@ -23,7 +23,7 @@ impl<T> MyBox<T> {
     }
 }
 
-fn main() {
+fn main1() {
     let x = 5;
     let y = MyBox::new(x);
 
@@ -66,7 +66,7 @@ fn hello(name: &str) {
     println!("Hello, {}!", name);
 }
 
-fn main() {
+fn main2() {
     let m = MyBox::new(String::from("Rust"));
     // 层层 Deref，解出 &str 类型
     // 当所涉及到的类型定义了 Deref trait，Rust 会分析这些类型并使用任意多次 Deref::deref 调用以获得匹配参数的类型
