@@ -70,3 +70,35 @@ let user2 = User {
     - 当结构体较大时，我们可能希望能够有更好的输出表现，此时可以使用 `{:#?}` 来替代 `{:?}`
     - `dbg!` 输出到标准错误输出 stderr，而 `println!` 输出到标准输出 stdout
         - `dbg!` 它最终还会把表达式值的所有权返回！可以重新赋值 `width = dbg!(30 * scale)` 
+
+# 数组 array
+- array为数组，Vector为动态数组；关系类似 &str 和 String
+    - array存储在栈上；Vector存储在堆上
+- 数组：长度固定；元素类型相同；依次线性排序
+- [T;n]是一个数组类型；[T]是数组切片类型
+    - [u8;3]和[u8;4]是不同的类型，数组的长度也是类型的一部分
+    - 使用最多的是数组切片[T], 并通过引用的方式`&[T]`
+   
+# 循环
+- `for item in collection`转移所有权
+    - `for item in IntoIterator::into_iter(collection)` 
+- `for item in &collection`不可变借用
+    - `for item in collection.iter()`
+- `for item in &mut collection`可变借用
+    - `for item in collection.iter_mut()`
+- 性能比较
+    - `for i in 0..collection.len()`
+    - `for item in collection`
+    - 性能：第一种使用方式中 collection[index] 的索引访问，会因为边界检查(Bounds Checking)导致运行时的性能损耗 —— Rust 会检查并确认 index 是否落在集合内，但是第二种直接迭代的方式就不会触发这种检查，因为编译器会在编译时就完成分析并证明这种访问是合法的
+    - 安全：第一种方式里对 collection 的索引访问是非连续的，存在一定可能性在两次访问之间，collection 发生了变化，导致脏数据产生。而第二种直接迭代的方式是连续访问，因此不存在这种风险（这里是因为所有权吗？是的话可能要强调一下）
+
+
+
+
+        
+        
+        
+        
+        
+        
+        
