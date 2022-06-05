@@ -92,3 +92,32 @@ fn main4() {
     fn remove_fancy_hat() {}
     fn reroll() {}
 }
+
+/// matches!宏
+
+// Rust 标准库中提供了一个非常实用的宏：matches!，它可以将一个表达式跟模式进行匹配，然后返回匹配的结果 true or false。
+// 例如，有一个动态数组，里面存有以下枚举：
+
+enum MyEnum {
+    Foo,
+    Bar
+}
+
+fn main5() {
+    let v = vec![MyEnum::Foo,MyEnum::Bar,MyEnum::Foo];
+}
+// 现在如果想对 v 进行过滤，只保留类型是 MyEnum::Foo 的元素，你可能想这么写：
+v.iter().filter(|x| x == MyEnum::Foo);
+// 但是，实际上这行代码会报错，因为你无法将 x 直接跟一个枚举成员进行比较。好在，你可以使用 match 来完成，但是会导致代码更为啰嗦，是否有更简洁的方式？答案是使用 matches!：
+
+v.iter().filter(|x| matches!(x, MyEnum::Foo));
+
+// 很简单也很简洁，再来看看更多的例子：
+let foo = 'f';
+assert!(matches!(foo, 'A'..='Z' | 'a'..='z'));
+
+let bar = Some(4);
+assert!(matches!(bar, Some(x) if x > 2));
+
+
+
