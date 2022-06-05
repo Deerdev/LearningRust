@@ -106,6 +106,17 @@ fn read_username_from_file2() -> Result<String, io::Error> {
 // ** ErrorA.from() -> ErrorB : ErrorA 必须实现转换为 ErrorB 的 trait
 // 这在当函数返回单个错误类型来代表所有可能失败的方式时很有用，即使其可能会因很多种原因失败。
 // 只要每一个错误类型都实现了 from 函数来定义如何将自身转换为返回的错误类型，? 运算符会自动处理这些转换。
+fn open_file() -> Result<File, Box<dyn std::error::Error>> {
+    let mut f = File::open("hello.txt")?;
+    Ok(f)
+}
+/*
+上面代码中 File::open 报错时返回的错误是 std::io::Error 类型，但是 open_file 函数返回的错误类型是 std::error::Error 的特征对象，可以看到一个错误类型通过 ? 返回后，变成了另一个错误类型，这就是 ? 的神奇之处。
+
+根本原因是在于标准库中定义的 From 特征，该特征有一个方法 from，用于把一个类型转成另外一个类型，? 可以自动调用该方法，然后进行隐式类型转换。因此只要函数返回的错误 ReturnError 实现了 From<OtherError> 特征，那么 ? 就会自动把 OtherError 转换为 ReturnError。
+
+这种转换非常好用，意味着你可以用一个大而全的 ReturnError 来覆盖所有错误类型，只需要为各种子错误类型实现这种转换即可。
+*/
 
 // ** ?链式调用
 fn read_username_from_file3() -> Result<String, io::Error> {
@@ -128,6 +139,7 @@ fn read_username_from_file4() -> Result<String, io::Error> {
 // ** ? 运算符只能被用于返回值与 ? 作用的值相兼容的函数
 // 函数返回类型为 Result 或 Option
 // Option 的场景
+// 如果结果是 None，则直接返回 None，如果是 Some(char)，则返回 Some(char)
 fn last_char_of_first_line(text: &str) -> Option<char> {
     text.lines().next()?.chars().last()
 }
@@ -144,3 +156,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+/// * 新手用 ? 常会犯的错误
+// 初学者在用 ? 时，老是会犯错，例如写出这样的代码：
+fn first(arr: &[i32]) -> Option<&i32> {
+    arr.get(0)?
+}
+// 这段代码无法通过编译，切记：? 操作符需要一个变量来承载正确的值，这个函数只会返回 Some(&i32) 或者 None，只有错误值能直接返回，正确的值不行，所以如果数组中存在 0 号元素，那么函数第二行使用 ? 后的返回类型为 &i32 而不是 Some(&i32)。因此 ? 只能用于以下形式：
+// let v = xxx()?;
+// xxx()?.yyy()?;
+
+
+/// * try! 已经废弃

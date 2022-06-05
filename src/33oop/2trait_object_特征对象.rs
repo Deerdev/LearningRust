@@ -30,6 +30,7 @@ pub trait Draw {
 
 pub struct Screen {
     // dyn Draw 实现 Draw 的所有实例
+    // Box<T> 一个引用, 包裹的值会被强制分配在堆上
     pub components: Vec<Box<dyn Draw>>,
 }
 
@@ -70,6 +71,7 @@ impl Draw for SelectBox {
 use gui::{Button, Screen};
 
 fn main() {
+    // 使用 Box::new(T) 的方式来创建了两个 Box<dyn Draw> 特征对象
     let screen = Screen {
         components: vec![
             Box::new(SelectBox {
@@ -90,6 +92,44 @@ fn main() {
     };
 
     screen.run();
+}
+
+impl Draw for u8 {
+    fn draw(&self) -> String {
+        format!("u8: {}", *self)
+    }
+}
+
+impl Draw for f64 {
+    fn draw(&self) -> String {
+        format!("f64: {}", *self)
+    }
+}
+// 若 T 实现了 Draw 特征， 则调用该函数时传入的 Box<T> 可以被隐式转换成函数参数签名中的 Box<dyn Draw>
+//! dyn 关键字只用在特征对象的类型声明上，在创建时无需使用 dyn
+fn draw1(x: Box<dyn Draw>) {
+    // 由于实现了 Deref 特征，Box 智能指针会自动解引用为它所包裹的值，然后调用该值对应的类型上定义的 `draw` 方法
+    x.draw();
+}
+
+//! 必须是 &dyn 指针类型，可以确定指针大小；dyn类型无法在编译期确定大小（可能是任何类型）
+fn draw2(x: &dyn Draw) {
+    x.draw();
+}
+
+// draw1 函数的参数是 Box<dyn Draw> 形式的特征对象，该特征对象是通过 Box::new(x) 的方式创建的
+// draw2 函数的参数是 &dyn Draw 形式的特征对象，该特征对象是通过 &x 的方式创建的
+fn main() {
+    let x = 1.1f64;
+    let y = 8u8;
+
+    // x 和 y 的类型 T 都实现了 `Draw` 特征，因为 Box<T> 可以在函数调用时隐式地被转换为特征对象 Box<dyn Draw> 
+    // 基于 x 的值创建一个 Box<f64> 类型的智能指针，指针指向的数据被放置在了堆上
+    draw1(Box::new(x));
+    // 基于 y 的值创建一个 Box<u8> 类型的智能指针
+    draw1(Box::new(y));
+    draw2(&x);
+    draw2(&y);
 }
 
 ///* trait 对象执行动态分发
@@ -113,7 +153,7 @@ fn main() {
 // Rust有一些复杂的规则来实现 trait 的对象安全，但在实践中，只有两个相关的规则。
 // 如果一个 trait 中定义的所有方法都符合以下规则，则该 trait 是对象安全的：
 // - 方法的返回类型不是 Self
-// - 党发中没有泛型类型的参数
+// - 方法中没有泛型类型的参数
 
 pub trait Clone {
     fn clone(&self) -> Self;

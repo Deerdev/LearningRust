@@ -1,4 +1,4 @@
-/// Vec<T>，也被称为 vector。
+///*  Vec<T>，也被称为 vector。
 // vector 允许我们在一个单独的数据结构中储存多于一个的值
 // 它在内存中彼此相邻地排列所有的值。
 // vector 只能储存相同类型的值。
@@ -24,7 +24,7 @@ fn main2() {
     v.push(8);
 }
 
-/// 丢弃 vector 时也会丢弃其所有元素
+///* 丢弃 vector 时也会丢弃其所有元素
 // 当 vector 被丢弃时，所有其内容也会被丢弃，这意味着这里它包含的整数将被清理
 fn main3() {
     {
@@ -50,11 +50,13 @@ fn main4() {
     }
 }
 
-// 不可运行：同时存在 不可变引用 和 可变引用
+//! 不可运行：同时存在 不可变引用 和 可变引用
 fn main5() {
     let mut v = vec![1, 2, 3, 4, 5];
     let first = &v[0]; // 不可变
-    v.push(6); // 可变: cannot borrow `v` as mutable because it is also borrowed as immutable
+    v.push(6); //! 可变: cannot borrow `v` as mutable because it is also borrowed as immutable
+    //* 原因在于：数组的大小是可变的，当旧数组的大小不够用时，Rust 会重新分配一块更大的内存空间，然后把旧数组拷贝过来。这种情况下，之前的引用显然会指向一块无效的内存
+
     println!("The first element is: {}", first);
 }
 
@@ -79,7 +81,7 @@ fn main7() {
     // [150, 82, 107]
 }
 
-/// 使用枚举来储存多种类型
+///* 使用枚举来储存多种类型
 fn main8() {
     enum SpreadsheetCell {
         Int(i32),
@@ -98,3 +100,34 @@ fn main8() {
 }
 
 // vec API 文档: https://doc.rust-lang.org/std/vec/struct.Vec.html
+
+
+/// * 基于特征对象的实现: 储存多种类型
+trait IpAddr {
+    fn display(&self);
+}
+
+struct V4(String);
+impl IpAddr for V4 {
+    fn display(&self) {
+        println!("ipv4: {:?}",self.0)
+    }
+}
+struct V6(String);
+impl IpAddr for V6 {
+    fn display(&self) {
+        println!("ipv6: {:?}",self.0)
+    }
+}
+
+fn main() {
+    //* 必需手动的指定类型：Vec<Box<dyn IpAddr>>，表示数组 v 存储的是特征 IpAddr 的对象，这样就实现了在数组中存储不同的类型。
+    let v: Vec<Box<dyn IpAddr>> = vec![
+        Box::new(V4("127.0.0.1".to_string())),
+        Box::new(V6("::1".to_string())),
+    ];
+
+    for ip in v {
+        ip.display();
+    }
+}

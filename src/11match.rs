@@ -105,19 +105,21 @@ enum MyEnum {
 
 fn main5() {
     let v = vec![MyEnum::Foo,MyEnum::Bar,MyEnum::Foo];
+
+    // 现在如果想对 v 进行过滤，只保留类型是 MyEnum::Foo 的元素，你可能想这么写：
+    v.iter().filter(|x| x == MyEnum::Foo);
+    // 但是，实际上这行代码会报错，因为你无法将 x 直接跟一个枚举成员进行比较。好在，你可以使用 match 来完成，但是会导致代码更为啰嗦，是否有更简洁的方式？答案是使用 matches!：
+
+    v.iter().filter(|x| matches!(x, MyEnum::Foo));
+
+    // 很简单也很简洁，再来看看更多的例子：
+    let foo = 'f';
+    assert!(matches!(foo, 'A'..='Z' | 'a'..='z'));
+
+    let bar = Some(4);
+    assert!(matches!(bar, Some(x) if x > 2));
 }
-// 现在如果想对 v 进行过滤，只保留类型是 MyEnum::Foo 的元素，你可能想这么写：
-v.iter().filter(|x| x == MyEnum::Foo);
-// 但是，实际上这行代码会报错，因为你无法将 x 直接跟一个枚举成员进行比较。好在，你可以使用 match 来完成，但是会导致代码更为啰嗦，是否有更简洁的方式？答案是使用 matches!：
 
-v.iter().filter(|x| matches!(x, MyEnum::Foo));
-
-// 很简单也很简洁，再来看看更多的例子：
-let foo = 'f';
-assert!(matches!(foo, 'A'..='Z' | 'a'..='z'));
-
-let bar = Some(4);
-assert!(matches!(bar, Some(x) if x > 2));
 
 
 

@@ -14,6 +14,7 @@ fn main() {
 }
 // 哈希 map 将它们的数据储存在堆上，这个 HashMap 的键类型是 String 而值类型是 i32。
 // 类似于 vector，哈希 map 是同质的：所有的键必须是相同类型，值也必须都是相同类型。
+//* 跟 Vec 一样，如果预先知道要存储的 KV 对个数，可以使用 `HashMap::with_capacity(capacity)` 创建指定大小的 HashMap，避免频繁的内存分配和拷贝，提升性能
 
 //
 //** collect: 另一个构建哈希 map 的方法是在一个元组的 vector 上使用迭代器（iterator）和 collect 方法，其中每个元组包含一个键值对
@@ -26,6 +27,14 @@ fn main() {
     // 因为可能 collect 为很多不同的数据结构，而除非显式指定否则 Rust 无从得知你需要的类型。
     // 是对于键和值的类型参数来说，可以使用下划线占位，而 Rust 能够根据 vector 中数据的类型推断出 HashMap 所包含的类型, 键（key）类型是 String，值（value）类型是 i32
     let mut scores: HashMap<_, _> = teams.into_iter().zip(initial_scores.into_iter()).collect();
+
+    let teams_list = vec![
+        ("中国队".to_string(), 100),
+        ("美国队".to_string(), 10),
+        ("日本队".to_string(), 50),
+    ];
+
+    let teams_map: HashMap<_, _> = teams_list.into_iter().collect();
 }
 
 //
@@ -111,8 +120,22 @@ fn main() {
     println!("{:?}", map); // {"world": 2, "hello": 1, "wonderful": 1}
 }
 
-//* 哈希函数
+//* 哈希函数, 使用三方 hash 函数
 // HashMap 默认使用一种叫做 SipHash 的哈希函数，它可以抵御涉及哈希表（hash table）的拒绝服务（Denial of Service, DoS）攻击。
 // 然而这并不是可用的最快的算法，不过为了更高的安全性值得付出一些性能的代价。
 // 如果性能监测显示此哈希函数非常慢，以致于你无法接受，你可以指定一个不同的 hasher 来切换为其它函数。
 // hasher 是一个实现了 BuildHasher trait 的类型。你并不需要从头开始实现你自己的 hasher；crates.io 有其他人分享的实现了许多常用哈希算法的 hasher 的库。
+
+fn main() {
+    use std::collections::HashMap;
+    use std::hash::BuildHasherDefault;
+    // 引入第三方的哈希函数
+    use twox_hash::XxHash64;
+
+    // 指定HashMap使用第三方的哈希函数XxHash64
+    let mut hash: HashMap<_, _, BuildHasherDefault<XxHash64>> = Default::default();
+    hash.insert(42, "the answer");
+    assert_eq!(hash.get(&42), Some(&"the answer"));
+}
+
+// 目前，HashMap 使用的哈希函数是 SipHash，它的性能不是很高，但是安全性很高。SipHash 在中等大小的 Key 上，性能相当不错，但是对于小型的 Key （例如整数）或者大型 Key （例如字符串）来说，性能还是不够好。若你需要极致性能，例如实现算法，可以考虑这个库：ahash（https://github.com/tkaitchuck/ahash）

@@ -50,7 +50,7 @@ struct Point {
 
 fn main() {
     let p = Point { x: 0, y: 7 };
-    // 结构：a = x, b = y
+    // 结构结构体：a = x, b = y
     let Point { x: a, y: b } = p;
     assert_eq!(0, a);
     assert_eq!(7, b);
@@ -74,6 +74,7 @@ fn main() {
     }
 }
 
+/// 解构枚举
 enum Message {
     Quit,
     Move { x: i32, y: i32 },
@@ -190,6 +191,7 @@ fn main() {
     //     println!("found a string");
     // }
     //! 会得到一个错误，因为 s 的值仍然会移动进 _s，并阻止我们再次使用 s
+    //! 使用 _ 解构 不会发生所有权转移
     println!("{:?}", s);
 }
 
@@ -272,11 +274,35 @@ fn main() {
     match msg {
         Message::Hello {
             // @ 赋值给 id_variable: `Found an id in range: 5`
+            // 通过在 3..=7 之前指定 id_variable @，我们捕获了任何匹配此范围的值并同时将该值绑定到变量 id_variable 上。
             id: id_variable @ 3..=7,
         } => println!("Found an id in range: {}", id_variable),
         Message::Hello { id: 10..=12 } => {
             println!("Found an id in another range")
         }
         Message::Hello { id } => println!("Found some other id: {}", id),
+    }
+}
+
+/// @前绑定后解构(Rust 1.56 新增)
+// 使用 @ 还可以在绑定新变量的同时，对目标进行解构：
+#[derive(Debug)]
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() {
+    // 绑定新变量 `p`，同时对 `Point` 进行解构
+    let p @ Point {x: px, y: py } = Point {x: 10, y: 23};
+    println!("x: {}, y: {}", px, py);
+    println!("{:?}", p);
+
+ 
+    let point = Point {x: 10, y: 5};
+    if let p @ Point {x: 10, y} = point {
+        println!("x is 10 and y is {} in {:?}", y, p);
+    } else {
+        println!("x was not 10 :(");
     }
 }

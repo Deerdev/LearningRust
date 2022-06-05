@@ -32,7 +32,7 @@ pub fn eat_at_restaurant() {
 
 // 第二种方式，我们在 eat_at_restaurant 中调用 add_to_waitlist，使用的是相对路径。这个路径以 front_of_house 为起始，这个模块在模块树中，与 eat_at_restaurant 定义在同一层级。与之等价的文件系统路径就是 front_of_house/hosting/add_to_waitlist。以名称为起始，意味着该路径是相对路径。
 
-/// 使用 super 起始的相对路径
+/// * 使用 super 起始的相对路径
 // 可以使用 super 开头来构建从父模块开始的相对路径。这么做类似于文件系统中以 .. 开头的语法
 
 // ---------------------------------------------------------
@@ -50,9 +50,25 @@ mod back_of_house {
 }
 // ---------------------------------------------------------
 
-/// 创建pub公有的结构体和枚举
-// pub 放在 struct 前：struct 是公共的，但是 字段默认还是私有的
-// struct 字段需要单独设置 pub 来变成公有
+/// * 使用 self 引用模块
+// self 其实就是引用自身模块中的项，也就是说和我们之前章节的代码类似，都调用同一模块中的内容，区别在于之前章节中直接通过名称调用即可，而 self，你得多此一举：
+fn serve_order() {
+    self::back_of_house::cook_order()
+}
+
+mod back_of_house {
+    fn fix_incorrect_order() {
+        cook_order();
+        crate::serve_order();
+    }
+
+    pub fn cook_order() {}
+}
+// 是的，多此一举，因为完全可以直接调用 back_of_house，但是 self 还有一个大用处，在下一节中我们会讲。
+
+/// * 创建pub公有的结构体和枚举 -- 代码可见性
+// * pub 放在 struct 前：struct 是公共的，但是 字段默认还是私有的
+// * struct 字段需要单独设置 pub 来变成公有
 mod back_of_house {
     pub struct Breakfast {
         pub toast: String,

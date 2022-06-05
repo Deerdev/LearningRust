@@ -61,6 +61,7 @@ impl<T> Point<T> {
     }
 }
 
+/// 为具体的泛型类型实现方法
 // 只针对具体类型实现方法（其他类型没实现该方法）
 // Point<f32> 类型会有一个方法 distance_from_origin，而其他 T 不是 f32 类型的 Point<T> 实例则没有定义此方法
 impl Point<f32> {
@@ -104,7 +105,7 @@ fn main4() {
 // 单态化是一个通过填充编译时使用的具体类型，将通用代码转换为特定代码的过程。
 // 编译慢、体积会增加，但是运行速度无影响
 
-fn main 5() {
+fn main5() {
     let integer = Some(5);
     let float = Some(5.0);
 }
@@ -126,3 +127,24 @@ fn main6() {
     let float = Option_f64::Some(5.0);
 }
 */
+
+///* const 泛型（Rust 1.51 版本引入的重要特性）
+//
+fn display_array(arr: [i32; 3]) {
+    println!("{:?}", arr);
+}
+fn main() {
+    let arr: [i32; 3] = [1, 2, 3];
+    display_array(arr);
+
+    let arr: [i32; 2] = [1, 2];
+    display_array(arr);
+}
+
+// 针对值的泛型
+// 将数组的长度泛型化：const N
+// 定义了一个类型为 [T; N] 的数组，其中 T 是一个基于类型的泛型参数，这个和之前讲的泛型没有区别，而重点在于 N 这个泛型参数，它是一个基于值的泛型参数！因为它用来替代的是数组的长度。
+// N 就是 const 泛型，定义的语法是 const N: usize，表示 const 泛型 N ，它基于的值类型是 usize
+fn display_array<T: std::fmt::Debug, const N: usize>(arr: [T; N]) {
+    println!("{:?}", arr);
+}
