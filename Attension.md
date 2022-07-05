@@ -147,4 +147,100 @@ let user2 = User {
     - or_insert 返回了 `&mut v` 引用，因此可以通过该可变引用直接修改 map 中对应的值
     - 使用 count 引用时，需要先进行解引用 *count，否则会出现类型不匹配
 
+# 类型转换
+- as
+    - `let a = 3.1 as i8;`
+    - 内存地址转换为指针 `let p1: *mut i32 = values.as_mut_ptr();`
+- try_into
+    - 强制转换，需要处理错误 `let b_: u8 = b.try_into().unwrap();`
+- 点操作符
+    - 隐式转换，会自动解引用
+- 黑洞：
+    - `mem::transmute<T, U>` 将类型 T 直接转成类型 U，唯一的要求就是，这两个类型占用同样大小的字节数
+    - `mem::transmute_copy<T, U>` 更加危险和不安全。它从 T 类型中拷贝出 U 类型所需的字节数，然后转换成 U。 mem::transmute 尚有大小检查，能保证两个数据的内存大小一致，transmute_copy 不检查，只不过 U 的尺寸若是比 T 大，会是一个未定义行为。
+
+# 错误处理
+- 不可恢复：`panic!("crash and burn");`
+    - 如果是 main 线程，则程序会终止，如果是其它子线程，该线程会终止，但是不会影响 main 线程
+- 返回 `Result<T, E>`
+    - 直接解 Result 是否有报错
+```rust
+// 错误处理
+let f = match f {
+    Ok(file) => file,
+    Err(error) => match error.kind() {
+        ErrorKind::NotFound => match File::create("hello.txt") {
+            Ok(fc) => fc,
+            Err(e) => panic!("Problem creating the file: {:?}", e),
+        },
+        other_error => panic!("Problem opening the file: {:?}", other_error),
+    },
+};
+```
+- 强制解，有 error 就会 panic：unwrap 和 expect
+    - `File::open("hello.txt").unwrap();`
+    - 携带自定义信息 `File::open("hello.txt").expect("Failed to open hello.txt");`
+
+# 包
+- module和文件拆分: https://course.rs/basic/crate-module/module.html
+- use的使用和可见性: https://course.rs/basic/crate-module/use.html 
+
+# 格式化输出
+- https://course.rs/basic/formatted-output.html
+- `{}` `{:?}` `{:#?}`
+
+# 生命周期
+- 生命周期标注并不会改变任何引用的实际作用域，只是为了辅助编译器编译通过
+```rust
+&i32        // 一个引用
+&'a i32     // 具有显式生命周期的引用
+&'a mut i32 // 具有显式生命周期的可变引用
+// 函数
+fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {}
+// 结构体: 结构体 ImportantExcerpt 所引用的字符串 str 必须比该结构体活得更久
+struct ImportantExcerpt<'a> {
+    part: &'a str,
+}
+
+// 方法中的生命周期
+// impl 中必须使用结构体的完整名称，包括 <'a>，因为生命周期标注也是结构体类型的一部分
+impl<'a> ImportantExcerpt<'a> {
+    fn level(&self) -> i32 {
+        3
+    }
+}
+```
+- 生命周期消除法则（满足规则就不用标注生命周期）
+    - 每一个引用参数都会获得独自的生命周期
+        - 例如一个引用参数的函数就有一个生命周期标注: `fn foo<'a>(x: &'a i32)`，两个引用参数的有两个生命周期标注:f`n foo<'a, 'b>(x: &'a i32, y: &'b i32)`, 依此类推。
+    - 若只有一个输入生命周期(函数参数中只有一个引用类型)，那么该生命周期会被赋给所有的输出生命周期，也就是所有返回值的生命周期都等于该输入生命周期
+        - 例如函数 `fn foo(x: &i32) -> &i32`，x 参数的生命周期会被自动赋给返回值 `&i32`，因此该函数等同于 `fn foo<'a>(x: &'a i32) -> &'a i32`
+    - 若存在多个输入生命周期，且其中一个是 &self 或 &mut self，则 &self 的生命周期被赋给所有的输出生命周期
+        - 拥有 &self 形式的参数，说明该函数是一个方法，该规则让方法的使用便利度大幅提升。
+
+- 静态生命周期 (能和程序活得一样久) `let s: &'static str = "我没啥优点，就是活得久，嘿嘿";`
+- 泛型 + 生命周期 `<'a, T, U>`
+```rust
+use std::fmt::Display;
+
+fn longest_with_an_announcement<'a, T>(
+    x: &'a str,
+    y: &'a str,
+    ann: T,
+) -> &'a str
+where
+    T: Display,
+{
+    println!("Announcement! {}", ann);
+    if x.len() > y.len() {
+        x
+    } else {
+        y
+    }
+}
+```
+
+
+
+
 
