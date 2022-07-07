@@ -239,8 +239,200 @@ where
     }
 }
 ```
+- 生命周期会影响变量的销毁：如果生命周期比较长，一个可变引用可能一直存在，导致无法对它进行不可变引用
+- **无界生命周期**：不安全代码(unsafe)经常会凭空产生引用或生命周期，这些生命周期被称为是 无界(unbound) 的 
+    - unsafe 的代码产生的生命周期，该周期是凭空产生的，比'static还强大
+```rust
+fn f<'a, T>(x: *const T) -> &'a T {
+    unsafe {
+        &*x
+    }
+}
+```
+- **生命周期约束 HRTB**
+    - `'a: 'b`: a 的生命周期>= b，`struct DoubleRef<'a,'b:'a, T> {}`
+    - `T: 'a`: 表示类型 T 必须比 'a 活得要久 (最新版 rust 可以不写)
+- 闭包的生命周期判断比函数困难，所以闭包干不了的，还是换成函数；（闭包的生命期消除规则 和 函数不一致）
+```rust
+// 函数签名可以明确生命周期，可以根据消除规则推导：如果函数参数中只有一个引用类型，那该引用的生命周期会被自动分配给所有的返回引用
+fn fn_elision(x: &i32) -> &i32 { x }
+// 闭包无法推断出，闭包内部的逻辑是不定的
+let closure_slision = |x: &i32| -> &i32 { x };
+```
+- Reborrow
+```rust
+fn main() {
+    let mut p = Point { x: 0, y: 0 };
+    let r = &mut p;
+    // reborrow! 此时对`r`的再借用不会导致跟上面的借用冲突
+    let rr: &Point = &*r;
 
+    // 再借用`rr`最后一次使用发生在这里，在它的生命周期中，我们并没有使用原来的借用`r`，因此不会报错
+    //! 如果在使用 rr 前，使用了 r 会报错
+    println!("{:?}", rr);
 
+    // 再借用结束后，才去使用原来的借用`r`
+    r.move_to(10, 10);
+    println!("{:?}", r);
+}
+```
 
+- 生命周期 impl 块消除
+    - `'_` 生命周期表示 BufReader 有一个不使用的生命周期，可以忽略它，无需为它创建一个名称。
+    - 既然用不到 'a，为何还要写出来？**生命周期参数也是类型的一部分**，因此 BufReader<'a> 是一个完整的类型，在实现它的时候，你不能把 'a 给丢了！
+```rust
+impl Reader for BufReader<'_> {
+    // methods go here
+}
+````
 
+# 闭包
+- `|x: i32, y: i32| -> i32 { x+y }`
+- `|x,y| x+y` 可以根据上下文做类型推断，不写类型，但是推断之后类型就确定了
+- `|| x`
+- `Fn` 闭包特征，同时也适合函数
+```rust
+// Fn(u32) -> u32 限定闭包或函数的类型
+// T: Fn(u32) -> u32 意味着 query 的类型是 T，该类型必须实现了相应的闭包特征 Fn(u32) -> u32
+struct Cacher<T>
+where
+    T: Fn(u32) -> u32,
+{
+    query: T,
+    value: Option<u32>,
+}
+```
+- 三种 Fn 特征：对应函数参数的三种传入方式：转移所有权、可变借用、不可变借用
+    - FnOnce，该类型的闭包会拿走被捕获变量的所有权。Once 顾名思义，说明该闭包只能运行一次
+```rust
+fn fn_once<F>(func: F)
+where
+    F: FnOnce(usize) -> bool, 
+{
+}
 
+fn fn_once<F>(func: F)
+where
+    F: FnOnce(usize) -> bool + copy,  // F 增加 Copy 特征，那么 func 参数可以在内部使用多次（参数传入，被 Copy 了）
+{
+}
+```
+
+- 如果你想强制闭包取得捕获变量的所有权，可以在参数列表前添加 move 关键字，这种用法通常用于闭包的生命周期大于捕获变量的生命周期时，例如将闭包返回或移入其他线程
+```rust
+let v = vec![1, 2, 3];
+let handle = thread::spawn(move || {
+    println!("Here's a vector: {:?}", v);
+});
+```
+
+- FnMut，它以可变借用的方式捕获了环境中的值，因此可以修改该值：
+```rust
+// 需要 mut，下面才可以调用(写法比较凹)
+let mut update_string =  |str| s.push_str(str);
+update_string("hello");
+
+// 或者 传递给函数处理，参数声明 FnMut
+let update_string =  |str| s.push_str(str);
+exec(update_string);
+
+fn exec<'a, F: FnMut(&'a str)>(mut f: F)  {
+    f("hello")
+}
+```
+- Fn 特征，它以不可变借用的方式捕获环境中的值 让我们把上面的代码中 exec 的 F 泛型参数类型修改为 Fn(&'a str), 就会报错
+
+- **一个闭包实现了哪种 Fn 特征取决于该闭包如何使用被捕获的变量，而不是取决于闭包如何捕获它们**
+    - `move` 本身强调的就是后者，闭包如何捕获变量
+```rust
+let update_string =  move || println!("{}",s);
+exec(update_string);
+
+fn exec<F: FnOnce()>(f: F)  {
+    f()
+}
+```
+- 一个闭包并不仅仅实现某一种 Fn 特征，规则如下：
+    - 所有的闭包都自动实现了 FnOnce 特征，因此任何一个闭包都至少可以被调用一次
+    - 没有移出所捕获变量的所有权的闭包自动实现了 FnMut 特征
+    - 不需要对捕获变量进行改变的闭包自动实现了 Fn 特征
+- 从源码中还能看出一点：Fn 获取 &self，FnMut 获取 &mut self，而 FnOnce 获取 self。 在实际项目中，**建议先使用 Fn 特征，然后编译器会告诉你正误以及该如何选择**。
+
+- 闭包作为返回值: 必须使用 impl, 因为`Fn` 只是一个 trait，不能确定大小；impl Trait 可以用来返回一个实现了指定特征的类型
+```rust
+fn factory(x:i32) -> impl Fn(i32) -> i32 {
+}
+
+fn factory(x:i32) -> impl Fn(i32) -> i32 {
+    let num = 5;
+    //! 报错
+    // 就算签名一样的闭包，类型也是不同的，因此在这种情况下，就无法再使用 impl Trait 的方式去返回闭包
+    if x > 1{
+        move |x| x + num
+    } else {
+        move |x| x - num
+    }
+    // 解决
+    if x > 1{
+        Box::new(move |x| x + num)
+    } else {
+        Box::new(move |x| x - num)
+    }
+}
+```
+
+# 迭代器
+iter 方法类型：
+- into_iter 会夺走所有权
+- iter 是借用
+- iter_mut 是可变借用
+
+Iterator 和 IntoIterator 的区别:
+- Iterator 就是迭代器特征，只有实现了它才能称为迭代器，才能调用 next
+- IntoIterator 强调的是某一个类型如果实现了该特征，它可以通过 into_iter，iter 等方法变成一个迭代器。
+
+迭代器 v.iter().map().filter()... 是惰性的，需要调用 collect 提取值（触发真实计算：需要一个消费者适配器来收尾，最终将迭代器转换成一个具体的值）
+- collection 会根据定义的类型推断 提取成什么类型
+- `let v2: Vec<_> = v1.iter().map(|x| x + 1).collect();`
+- zip 连接两个迭代器: 形成 `Iterator<Item=(ValueFromA, ValueFromB)>` 这样的新的迭代器，在此处就是形如 [(name1, age1), (name2, age2)] 的迭代器。
+- 这里 collect 提取成 HashMap： `let folks: HashMap<_, _> = names.into_iter().zip(ages.into_iter()).collect();`
+- 闭包作为适配器参数filter 方法：`shoes.into_iter().filter(|s| s.size == shoe_size).collect()`
+
+```rust
+/*
+其中 zip，map，filter 是迭代器适配器：
+- zip 把两个迭代器合并成一个迭代器，新迭代器中，每个元素都是一个元组，由之前两个迭代器的元素组成。例如将形如 [1, 2, 3, 4, 5] 和 [2, 3, 4, 5] 的迭代器合并后，新的迭代器形如 [(1, 2),(2, 3),(3, 4),(4, 5)]
+- map 是将迭代器中的值经过映射后，转换成新的值[2, 6, 12, 20]
+- filter 对迭代器中的元素进行过滤，若闭包返回 true 则保留元素[6, 12]，反之剔除
+
+sum 是消费者适配器，对迭代器中的所有元素求和，最终返回一个 u32 值 18
+*/
+let sum: u32 = Counter::new()
+    .zip(Counter::new().skip(1))
+    .map(|(a, b)| a * b)
+    .filter(|x| x % 3 == 0)
+    .sum();
+assert_eq!(18, sum);
+```
+
+- `.enumerate()` 获取迭代器索引：
+```rust
+let v = vec![1u64, 2, 3, 4, 5, 6];
+for (i,v) in v.iter().enumerate() {
+    println!("第{}个值是{}",i,v)
+}
+
+// 因为 enumerate 是迭代器适配器，因此我们可以对它返回的迭代器调用其它 Iterator 特征方法：
+let v = vec![1u64, 2, 3, 4, 5, 6];
+let val = v.iter()
+    .enumerate()
+    // 每两个元素剔除一个
+    // [1, 3, 5]
+    .filter(|&(idx, _)| idx % 2 == 0)
+    .map(|(idx, val)| val)
+    // 累加 1+3+5 = 9
+    .fold(0u64, |sum, acm| sum + acm);
+
+println!("{}", val);
+```
+- 迭代器性能比 for 循环好
