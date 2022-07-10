@@ -60,7 +60,7 @@ let user2 = User {
         ..user1 // 只会提取未赋值的字段，不符覆盖 email
     };
 ```
-- 结构体的内存排列: 
+- 结构体的内存排列:
     - 把结构体中具有所有权的字段转移出去后，将无法再访问该字段，但是可以正常访问其它的字段。(每个字段分配独立的堆内存，互不影响)
 ![](https://pic3.zhimg.com/80/v2-8cc4ed8cd06d60f974d06ca2199b8df5_1440w.png)
 - 结构体打印
@@ -69,7 +69,7 @@ let user2 = User {
         - `println!("rect1 is {:?}", rect1);`
     - 当结构体较大时，我们可能希望能够有更好的输出表现，此时可以使用 `{:#?}` 来替代 `{:?}`
     - `dbg!` 输出到标准错误输出 stderr，而 `println!` 输出到标准输出 stdout
-        - `dbg!` 它最终还会把表达式值的所有权返回！可以重新赋值 `width = dbg!(30 * scale)` 
+        - `dbg!` 它最终还会把表达式值的所有权返回！可以重新赋值 `width = dbg!(30 * scale)`
 
 # 数组 array
 - array为数组，Vector为动态数组；关系类似 &str 和 String
@@ -78,10 +78,10 @@ let user2 = User {
 - [T;n]是一个数组类型；[T]是数组切片类型
     - [u8;3]和[u8;4]是不同的类型，数组的长度也是类型的一部分
     - 使用最多的是数组切片[T], 并通过引用的方式`&[T]`
-   
+
 # 循环
 - `for item in collection`转移所有权
-    - `for item in IntoIterator::into_iter(collection)` 
+    - `for item in IntoIterator::into_iter(collection)`
 - `for item in &collection`不可变借用
     - `for item in collection.iter()`
 - `for item in &mut collection`可变借用
@@ -92,17 +92,17 @@ let user2 = User {
     - 性能：第一种使用方式中 collection[index] 的索引访问，会因为边界检查(Bounds Checking)导致运行时的性能损耗 —— Rust 会检查并确认 index 是否落在集合内，但是第二种直接迭代的方式就不会触发这种检查，因为编译器会在编译时就完成分析并证明这种访问是合法的
     - 安全：第一种方式里对 collection 的索引访问是非连续的，存在一定可能性在两次访问之间，collection 发生了变化，导致脏数据产生。而第二种直接迭代的方式是连续访问，因此不存在这种风险（这里是因为所有权吗？是的话可能要强调一下）
 - 减少使用索引的循环
- 
+
 # 函数/方法
 
 - 方法
-    
+
     ![](https://pica.zhimg.com/80/v2-0d848e960f3279999eab4b1317f6538e_1440w.png)
 
 # Trait
 - 特征对象; [./src/33oop/2trait_object_特征对象.rs](./src/33oop/2trait_object_特征对象.rs)
     - 通过特征对象实现类似 「多态」 的特性，以 Trait 为对象封装类型 `Box<dyn Trait>`，所有遵循该 Trait 的对象都可以用 Box 包起来传递进去
-- 特征对下动态派发 
+- 特征对下动态派发
 
   - 泛型是在编译期完成处理的：编译器会为每一个泛型参数对应的具体类型生成一份代码，这种方式是静态分发(static dispatch)，因为是在编译期完成的，对于运行期性能完全没有任何影响。
   - 与静态分发相对应的是动态分发(dynamic dispatch)，在这种情况下，直到运行时，才能确定需要调用什么方法。之前代码中的关键字 `dyn` 正是在强调这一“动态”的特点。
@@ -183,7 +183,7 @@ let f = match f {
 
 # 包
 - module和文件拆分: https://course.rs/basic/crate-module/module.html
-- use的使用和可见性: https://course.rs/basic/crate-module/use.html 
+- use的使用和可见性: https://course.rs/basic/crate-module/use.html
 
 # 格式化输出
 - https://course.rs/basic/formatted-output.html
@@ -240,7 +240,7 @@ where
 }
 ```
 - 生命周期会影响变量的销毁：如果生命周期比较长，一个可变引用可能一直存在，导致无法对它进行不可变引用
-- **无界生命周期**：不安全代码(unsafe)经常会凭空产生引用或生命周期，这些生命周期被称为是 无界(unbound) 的 
+- **无界生命周期**：不安全代码(unsafe)经常会凭空产生引用或生命周期，这些生命周期被称为是 无界(unbound) 的
     - unsafe 的代码产生的生命周期，该周期是凭空产生的，比'static还强大
 ```rust
 fn f<'a, T>(x: *const T) -> &'a T {
@@ -307,7 +307,7 @@ where
 ```rust
 fn fn_once<F>(func: F)
 where
-    F: FnOnce(usize) -> bool, 
+    F: FnOnce(usize) -> bool,
 {
 }
 
@@ -436,3 +436,92 @@ let val = v.iter()
 println!("{}", val);
 ```
 - 迭代器性能比 for 循环好
+
+# 类型
+
+- 新类型(当成新类型处理)：`struct Meters(u32);`aaa
+    - 用于为系统类型添加 Trait 实现
+    - 依然可以通过 `vale.0` 获取到原始类型
+- 别名(还会当成原来的类型处理)：`type Meters = u32`
+  - 可以将复杂类型 type alias 之后，减少重复写的次数
+- `!` 不返回类型：
+  - rust 默认返回类型是 `()`
+  - `panic!` 不会返回类型
+
+- 定长类型 sized：这些类型的大小在编译时是已知的
+- 不定长类型( unsized / DST-dynamically sized types)，与定长类型相反，它的大小只有到了程序运行时才能动态获知
+  - 因为编译器无法在编译期获知类型大小，若你试图在代码中直接使用 DST 类型，将无法通过编译
+  - `Rust 需要明确地知道一个特定类型的值占据了多少内存空间，同时该类型的所有值都必须使用相同大小的内存`。如果 Rust 允许我们使用这种动态类型，那么这两个 str 值就需要占用同样大小的内存，这显然是不现实的: s1 占用了 12 字节，s2 占用了 15 字节，总不至于为了满足同样的内存大小，用空白字符去填补字符串吧？
+
+```rust
+// error
+let s1: str = "Hello there!";
+let s2: str = "How's it going?";
+
+// ok
+let s3: &str = "on?"
+```
+**总结：只能间接使用的 DST**
+- Rust 中常见的 DST 类型有: str、[T]、dyn Trait，它们都无法单独被使用，必须要通过引用或者 Box 来间接使用。
+
+```rust
+fn foobar_1(thing: &dyn MyThing) {}     // OK
+fn foobar_2(thing: Box<dyn MyThing>) {} // OK
+fn foobar_3(thing: MyThing) {}          // ERROR!
+```
+
+- 每一个特征都是一个可以通过名称来引用的动态大小类型。因此如果想把特征作为具体的类型来传递给函数，你必须将其转换成一个特征对象：诸如 `&dyn Trait` 或者 `Box<dyn Trait>` (还有 `Rc<dyn Trait>`)这些引用类型。
+
+- 如何在泛型函数中使用动态数据类型？`?Sized` 特征: 表明类型 T 既有可能是固定大小的类型，也可能是动态大小的类型
+
+```rust
+// 参数类型也改为 &T，动态类型 需要使用指针参数
+fn generic<T: ?Sized>(t: &T) {
+    // --snip--
+}
+```
+- `Box<str>`
+
+```rust
+fn main() {
+    // ERROR: 无法获取 str 的长度，无法使用这种语法进行 Box 进装
+    let s1: Box<str> = Box::new("Hello there!" as str);
+    // 主动转换成 str 的方式不可行，但是可以让编译器来帮我们完成，只要告诉它我们需要的类型即可。
+    let s2: Box<str> = "Hello there!".into();
+}
+```
+整数转为枚举：rust 不支持整数转为枚举（反之可以）
+
+- 方法一：使用三方库 num-traits、num-derive、num_enum
+- 方法二：TryFrom + 宏
+- 方法三：邪恶之王 std::mem::transmute
+```rust
+// 使用#[repr(..)]来控制底层类型的大小，免得本来需要 i32，结果传入 i64，最终内存无法对齐，产生奇怪的结果
+#[repr(i32)]
+enum MyEnum {
+    A = 1, B, C
+}
+
+let x = MyEnum::C;
+let y = x as i32;
+let z: MyEnum = unsafe { std::mem::transmute(y) };
+```
+
+# 智能指针
+智能指针往往是基于结构体实现，它与我们自定义的结构体最大的区别在于它实现了 `Deref` 和 `Drop` 特征：
+- `Deref` 可以让智能指针像引用那样工作，这样你就可以写出同时支持智能指针和引用的代码，例如 *T
+- `Drop` 允许你指定智能指针超出作用域后自动执行的代码，例如做一些数据清除等收尾工作
+
+主要类型：
+- `Box<T>`，可以将值分配到堆上
+- `Rc<T>`，引用计数类型，允许多所有权存在
+- `Ref<T>` 和 `RefMut<T>`，允许将借用规则检查从编译期移动到运行期进行
+
+## 堆栈的性能
+很多人可能会觉得栈的性能肯定比堆高，其实未必。 由于我们在后面的性能专题会专门讲解堆栈的性能问题，因此这里就大概给出结论：
+- 小型数据，在栈上的分配性能和读取性能都要比堆上高
+- 中型数据，栈上分配性能高，但是读取性能和堆上并无区别，因为无法利用寄存器或 CPU 高速缓存，最终还是要经过一次内存寻址
+- 大型数据，只建议在堆上分配和使用
+
+总之，栈的分配速度肯定比堆上快，但是读取速度往往取决于你的数据能不能放入寄存器或 CPU 高速缓存。 因此不要仅仅因为堆上性能不如栈这个印象，就总是优先选择栈，导致代码更复杂的实现。
+
