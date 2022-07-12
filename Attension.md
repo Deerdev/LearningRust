@@ -525,3 +525,56 @@ let z: MyEnum = unsafe { std::mem::transmute(y) };
 
 总之，栈的分配速度肯定比堆上快，但是读取速度往往取决于你的数据能不能放入寄存器或 CPU 高速缓存。 因此不要仅仅因为堆上性能不如栈这个印象，就总是优先选择栈，导致代码更复杂的实现。
 
+## Box
+Box 相比其它智能指针，功能较为单一，可以在以下场景中使用它：
+- 特意的将数据分配在堆上
+- 数据较大时，又不想在转移所有权时进行数据拷贝
+- 类型的大小在编译期无法确定，但是我们又需要固定大小的类型时(DST -> Sized)
+- 特征对象，用于说明对象实现了一个特征，而不是某个特定的类型
+
+```rust
+// 分配在堆上
+let a = Box::new(3);
+
+// 大数据分配在堆上，copy 时，转义所有权（只 copy 栈指针，不会 copy 堆数据）
+let arr = Box::new([0;1000]);
+let arr1 = arr; // arr 转移所有权 失效
+
+// DST -> Sized
+enum List {
+    Cons(i32, Box<List>),
+    Nil,
+}
+
+// 特征对象
+let elems: Vec<Box<dyn Draw>> = vec![Box::new(Button { id: 1 }), Box::new(Select { id: 2 })];
+```
+
+```rust
+/*
+                    (heap)
+(stack)    (heap)   ┌───┐
+┌──────┐   ┌───┐ ┌─→│ 1 │
+│ vec  │──→│B1 │─┘  └───┘
+└──────┘   ├───┤    ┌───┐
+           │B2 │───→│ 2 │
+           └───┘    └───┘
+*/
+fn main() {
+    let arr = vec![Box::new(1), Box::new(2)];
+    // 使用 & 借用数组中的元素，否则会报所有权错误
+    let (first, second) = (&arr[0], &arr[1]);
+    // 表达式不能隐式的解引用，因此必须使用 ** 做两次解引用，第一次将 &Box<i32> 类型转成 Box<i32>，第二次将 Box<i32> 转成 i32
+    let sum = **first + **second;
+}
+```
+- Box::leak 它可以消费掉 Box 并且强制目标值从内存中泄漏
+    - 简单的场景，你需要一个在运行期初始化的值，但是可以全局有效，也就是和整个程序活得一样久，那么就可以使用 Box::leak，例如有一个存储配置的结构体实例，它是在运行期动态插入内容，那么就可以将其转为全局有效，虽然 Rc/Arc 也可以实现此功能，但是 Box::leak 是性能最高的。
+```rust
+fn gen_static_str() -> &'static str{
+    let mut s = String::new();
+    s.push_str("hello, world");
+    // 转换成 'static 的变量
+    Box::leak(s.into_boxed_str())
+}
+```
