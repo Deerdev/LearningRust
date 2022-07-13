@@ -20,3 +20,6 @@
 - Rust 培养提高计划： https://github.com/wubx/rust-in-databend
 - Rust 语言圣经 https://course.rs/about-book.html
 - [Rust By Practice( Rust 练习实践 )](https://zh.practice.rs/why-exercise.html)
+- Rust 算法代码案例 https://algos.rs/about-book.html
+- [Learn Rust by writing Entirely Too Many Linked Lists](https://github.com/rust-unofficial/too-many-lists)
+- [Learn Rust by writing Entirely Too Many Linked Lists - ch](https://weathfold.gitbooks.io/rust-too-many-lists-zhcn/content/)
