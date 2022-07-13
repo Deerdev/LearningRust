@@ -848,4 +848,102 @@ struct SelfRef<'a> {
 }
 ```
 
+# 多线程
+```rust
+// 闭包执行
+let handle = thread::spawn(|| {});
+thread::sleep(Duration::from_millis(1));
+
+// 等待子线程的结束
+handle.join().unwrap();
+```
+
+- move: 转移变量给线程；Rust 无法确定新的线程会活多久（多个线程的结束顺序并不是固定的），所以也无法确定新线程所引用的 v 是否在使用过程中一直合法
+```rust
+let v = vec![1, 2, 3];
+
+let handle = thread::spawn(move || {
+    println!("Here's a vector: {:?}", v);
+});
+```
+
+- main线程结束后，子线程会被杀掉；如果父线程不是main，那么父线程结束后，子线程还是会继续运行，直到子线程的代码运行完成或者 main 线程的结束
+- 无锁写入 吞吐并不是跟随线程数线性增长的：
+    - 虽然是无锁，但是内部是 CAS 实现，大量线程的同时访问，会让 CAS 重试次数大幅增加
+    - 线程过多时，CPU 缓存的命中率会显著下降，同时多个线程竞争一个 CPU Cache-line 的情况也会经常发生
+    - 大量读写可能会让内存带宽也成为瓶颈
+    - 读和写不一样，无锁数据结构的读往往可以很好地线性增长，但是写不行，因为写竞争太大
+
+- 线程屏障(Barrier): 让线程卡在某一步，等待大家全部做完一些前置工作
+```rust
+// 全部执行完before wait之后，才会开始 after wait
+let mut handles = Vec::with_capacity(6);
+let barrier = Arc::new(Barrier::new(6));
+
+for _ in 0..6 {
+    let b = barrier.clone();
+    handles.push(thread::spawn(move|| {
+        println!("before wait");
+        b.wait();
+        println!("after wait");
+    }));
+}
+
+for handle in handles {
+    handle.join().unwrap();
+}
+```
+- 线程局部变量：每个线程获得copy，独立使用，不会互相影响`thread_local!(static FOO: RefCell<u32> = RefCell::new(1));`
+```rust
+// 通过 with 获取值
+FOO.with(|f| {
+        assert_eq!(*f.borrow(), 1);
+        *f.borrow_mut() = 3;
+    });
+```
+
+- 用条件控制线程的挂起和执行：
+```rust
+let pair = Arc::new((Mutex::new(false), Condvar::new()));
+let pair2 = pair.clone();
+
+thread::spawn(move|| {
+    let &(ref lock, ref cvar) = &*pair2;
+    let mut started = lock.lock().unwrap();
+    println!("changing started");
+    *started = true;
+    cvar.notify_one();
+});
+
+let &(ref lock, ref cvar) = &*pair;
+let mut started = lock.lock().unwrap();
+while !*started {
+    // 等待 子线程通知
+    started = cvar.wait(started).unwrap();
+}
+
+println!("started changed");
+```
+- 只被调用一次的函数
+```rust
+static mut VAL: usize = 0;
+static INIT: Once = Once::new();
+let handle1 = thread::spawn(move || {
+    INIT.call_once(|| {
+        unsafe {
+            VAL = 1;
+        }
+    });
+});
+```
+
+
+
+
+
+
+
+
+
+
 
