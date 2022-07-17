@@ -943,12 +943,342 @@ let handle1 = thread::spawn(move || {
 ```
 
 
+## 通信 / 通道
+- rust 有 channel
+```rust
+// mpsc是multiple producer, single consumer的缩写, 多发送至，单接收者
+use std::sync::mpsc;
+use std::thread;
 
+fn main() {
+    // 创建一个消息通道, 返回一个元组：(发送者，接收者)
+    let (tx, rx) = mpsc::channel();
 
+    // 创建线程，并发送消息
+    thread::spawn(move || {
+        // 发送一个数字1, send方法返回Result<T,E>，通过unwrap进行快速错误处理
+        tx.send(1).unwrap();
 
+        // 下面代码将报错，因为编译器自动推导出通道传递的值是i32类型，那么Option<i32>类型将产生不匹配错误
+        // tx.send(Some(1)).unwrap()
+    });
 
+    // 阻塞：在主线程中接收子线程发送的消息并输出
+    println!("receive {}", rx.recv().unwrap());
+    // 不阻塞 try_recv, 没有数据返回 Err
+    /*
+    ···
+    receive Err(Empty)
+    receive Ok(1)
+    receive Err(Disconnected) 发送端断开连接
+    ···
+    */
+    println!("receive {:?}", rx.try_recv());
+}
+```
+- 使用通道来传输数据，一样要遵循 Rust 的所有权规则：
+    - 若值的类型实现了Copy特征，则直接复制一份该值，然后传输过去，例如之前的i32类型
+    - 若值没有实现Copy，则它的所有权会被转移给接收端，在发送端继续使用该值将报错
 
+- 循环发送和接收
+```rust
+thread::spawn(move || {
+    let vals = vec![
+        String::from("hi"),
+        String::from("from"),
+        String::from("the"),
+        String::from("thread"),
+    ];
 
+    for val in vals {
+        tx.send(val).unwrap();
+        thread::sleep(Duration::from_secs(1));
+    }
+});
+// 主线程使用for循环阻塞的从rx迭代器中接收消息，当子线程运行完成时，发送者tx会随之被drop，此时for循环将被终止，最终main线程成功结束。
+for received in rx {
+    println!("Got: {}", received);
+}
+```
 
+- 使用多发送者: clone tx
+    - 需要所有的发送者都被drop掉后，接收者rx才会收到错误，进而跳出for循环，最终结束主线程
+    - 这里虽然用了clone但是并不会影响性能，因为它并不在热点代码路径中，仅仅会被执行一次
+    - 由于两个子线程谁先创建完成是未知的，因此哪条消息先发送也是未知的，最终主线程的输出顺序也不确定
+```rust
+fn main() {
+    let (tx, rx) = mpsc::channel();
+    // 由于子线程会拿走发送者的所有权，因此我们必须对发送者进行克隆，然后让每个线程拿走它的一份拷贝
+    let tx1 = tx.clone();
+    thread::spawn(move || {
+        tx.send(String::from("hi from raw tx")).unwrap();
+    });
 
+    thread::spawn(move || {
+        tx1.send(String::from("hi from cloned tx")).unwrap();
+    });
 
+    for received in rx {
+        println!("Got: {}", received);
+    }
+}
+```
+- 消息顺序: channel 中的消息是有序的；对于通道而言，消息的发送顺序和接收顺序是一致的，满足FIFO原则(先进先出)。
+- 同步和异步通道（针对发送端）
+    - mpsc::channel 默认是异步发送通道
+    - mpsc::sync_channel 同步通道发送消息是阻塞的，只有在消息被接收后才解除阻塞 `let (tx, rx)= mpsc::sync_channel(0);`; 有接收消息彻底成功后，发送消息才算完成
+- 消息缓存
+    - 同步 channel `mpsc::sync_channel(N)` 可以指定缓存 N 个消息, 超过 N 之后，才会触发阻塞
+    - 异步 channel 不需要指定，异步通道的缓冲上限取决于你的内存大小，不要撑爆就行。
+
+- 关闭通道：所有发送者被drop或者所有接收者被drop后，通道会自动关闭；（这件事是在编译期实现的，完全没有运行期性能损耗！只能说 Rust 的Drop特征 YYDS!）
+```rust
+use std::sync::mpsc;
+fn main() {
+
+    use std::thread;
+
+    let (send, recv) = mpsc::channel();
+    let num_threads = 3;
+    for i in 0..num_threads {
+        let thread_send = send.clone();
+        thread::spawn(move || {
+            thread_send.send(i).unwrap();
+            println!("thread {:?} finished", i);
+        });
+    }
+
+    // main 函数无法结束
+    //! 需要在这里drop send; 不然 send 要到 main 结束才会释放；但是下面的 for 又阻塞等待 send 的释放/关闭
+
+    for x in recv {
+        println!("Got: {}", x);
+    }
+    println!("finished iterating");
+}
+```
+
+- 通道支持传输多种类型的数据：使用枚举
+```rust
+enum Fruit {
+    Apple(u8),
+    Orange(String)
+}
+q
+let (tx, rx): (Sender<Fruit>, Receiver<Fruit>) = mpsc::channel();
+```
+- 多发送者，多接受者：使用三方库
+    - crossbeam-channel, 老牌强库，功能较全，性能较强，之前是独立的库，但是后面合并到了crossbeam主仓库中
+    - flume, 官方给出的性能数据某些场景要比 crossbeam 更好些
+
+## 线程同步：锁、Condvar 和信号量
+- **消息传递**类似一个单所有权的系统：一个值同时只能有一个所有者，如果另一个线程需要该值的所有权，需要将所有权通过消息传递进行转移。
+- 而**共享内存**类似于一个多所有权的系统：多个线程可以同时访问同一个值。
+
+### Mutex
+- 互斥锁Mutex(mutual exclusion 的缩写)。Mutex让多个线程并发的访问同一个值变成了排队访问：同一时间，只允许一个线程A访问该值，其它线程需要等待A访问完成后才能继续。
+- 锁在多线程中使用`Arc`传递（而不是 RC，因为 RC 不支持多线程）
+```rust
+let counter = Arc::new(Mutex::new(0));
+let counter = Arc::clone(&counter);
+thread::spawn(move || {
+    let mut num = counter.lock().unwrap();
+    *num += 1;
+});
+```
+- `Rc<T>/RefCell<T>`用于单线程内部可变性， `Arc<T>/Mutex<T>`用于多线程内部可变性。
+    - 用不可变`Rc<T>/Arc<T>`包裹可变`RefCell<T>/Mutex<T>`，实现内部可变性
+
+- 使用 try_lock 解决死锁, try_lock会尝试去获取一次锁，如果无法获取会返回一个错误，因此不会发生阻塞
+    - 在 Rust 标准库中，使用`try_xxx`都会尝试进行一次操作，如果无法完成，就立即返回，不会发生阻塞。例如消息传递章节中的`try_recv`以及本章节中的`try_lock`
+
+### RwLock
+- 读写锁：可以同时读，但是不能同时`读写`
+    - 读可以使用read、try_read，写write、try_write, 在实际项目中，try_xxx会安全的多
+```rust
+let lock = RwLock::new(5);
+let r1 = lock.read().unwrap();
+let mut w = lock.write().unwrap();
+// 可以使用try_write和try_read来尝试进行一次写/读，若失败则返回错误.
+```
+
+### 锁性能对比
+RwLock 使用的问题：
+- 读和写不能同时发生，如果使用try_xxx解决，就必须做大量的错误处理和失败重试机制
+- 当读多写少时，写操作可能会因为一直无法获得锁导致连续多次失败(writer starvation)
+- RwLock 其实是操作系统提供的，实现原理要比Mutex复杂的多，因此单就锁的性能而言，比不上原生实现的Mutex
+
+两个锁的区别:
+- 追求高并发读取时，使用RwLock，因为Mutex一次只允许一个线程去读取
+- 如果要保证写操作的成功性，使用Mutex
+- 不知道哪个合适，统一使用Mutex
+
+性能:
+- 一个常见的、错误的使用RwLock的场景就是使用HashMap进行简单读写，因为HashMap的读和写都非常快，RwLock的复杂实现和相对低的性能反而会导致整体性能的降低，因此一般来说更适合使用Mutex。
+- 如果你要使用RwLock要确保满足以下两个条件：并发读，且需要对读到的资源进行"长时间"的操作，HashMap也许满足了并发读的需求，但是往往并不能满足后者："长时间"的操作。
+
+标准库在设计时总会存在取舍，因为往往性能并不是最好的，如果你追求性能，可以使用三方库提供的并发原语:
+- parking_lot, 功能更完善、稳定，社区较为活跃，star 较多，更新较为活跃
+-  spin, 在多数场景中性能比parking_lot高一点，最近没怎么更新
+如果不是追求特别极致的性能，建议选择前者。
+
+### Condvar 条件控制
+```rust
+use std::sync::{Arc,Mutex,Condvar};
+use std::thread::{spawn,sleep};
+use std::time::Duration;
+
+fn main() {
+    let flag = Arc::new(Mutex::new(false));
+    let cond = Arc::new(Condvar::new());
+    let cflag = flag.clone();
+    let ccond = cond.clone();
+
+    let hdl = spawn(move || {
+        let mut m = { *cflag.lock().unwrap() };
+        let mut counter = 0;
+
+        while counter < 3 {
+            while !m {
+                // 等待条件被激活
+                m = *ccond.wait(cflag.lock().unwrap()).unwrap();
+            }
+
+            {
+                m = false;
+                *cflag.lock().unwrap() = false;
+            }
+
+            counter += 1;
+            println!("inner counter: {}", counter);
+        }
+    });
+
+    let mut counter = 0;
+    loop {
+        sleep(Duration::from_millis(1000));
+        *flag.lock().unwrap() = true;
+        counter += 1;
+        if counter > 3 {
+            break;
+        }
+        println!("outside counter: {}", counter);
+        // 触发条件
+        cond.notify_one();
+    }
+    hdl.join().unwrap();
+    println!("{:?}", flag);
+}
+/*
+outside counter: 1
+inner counter: 1
+outside counter: 2
+inner counter: 2
+outside counter: 3
+inner counter: 3
+Mutex { data: true, poisoned: false, .. }
+*/
+```
+
+### Semaphore
+- 使用它可以让我们精准的控制当前正在运行的任务最大数量
+```rust
+// 本来 Rust 在标准库中有提供一个信号量实现, 但是由于各种原因这个库现在已经不再推荐使用了，因此我们推荐使用tokio中提供的Semaphore实现: tokio::sync::Semaphore。
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+
+#[tokio::main]
+async fn main() {
+    let semaphore = Arc::new(Semaphore::new(3));
+    let mut join_handles = Vec::new();
+
+    for _ in 0..5 {
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        join_handles.push(tokio::spawn(async move {
+            // do sth...
+            // 释放
+            drop(permit);
+        }));
+    }
+
+    for handle in join_handles {
+        handle.await.unwrap();
+    }
+}
+```
+
+### Atomic 原子类型与内存顺序
+- 原子指的是一系列不可被 CPU 上下文交换的机器指令，这些指令组合在一起就形成了原子操作。在多核 CPU 下，当某个 CPU 核心开始运行原子操作时，`会先暂停其它 CPU 内核对内存的操作，以保证原子操作不会被其它 CPU 内核所干扰`。
+- 由于原子操作是通过指令提供的支持，因此它的`性能`相比锁和消息传递会好很多。相比较于锁而言，原子类型不需要开发者处理加锁和释放锁的问题，同时支持修改，读取等操作，还具备较高的并发性能，几乎所有的语言都支持原子类型。
+- 可以看出原子类型是无锁类型，但是无锁不代表无需等待，因为原子类型内部使用了CAS循环，当大量的冲突发生时，该等待还是得等待！但是总归比锁要好。
+    - CAS 全称是 Compare and swap, 它通过一条指令读取指定的内存地址，然后判断其中的值是否等于给定的前置值，如果相等，则将其修改为新的值
+
+- 内存排序：[内存排序](https://course.rs/advance/concurrency-with-threads/sync2.html#%E5%86%85%E5%AD%98%E9%A1%BA%E5%BA%8F)
+- 内存顺序的选择
+    - 不知道怎么选择时，优先使用SeqCst，虽然会稍微减慢速度，但是慢一点也比出现错误好
+    - 多线程只计数fetch_add而不使用该值触发其他逻辑分支的简单使用场景，可以使用Relaxed，参考 [Which std::sync::atomic::Ordering to use?](https://stackoverflow.com/questions/30407121/which-stdsyncatomicordering-to-use)
+
+```rust
+// 多线程中使用
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{hint, thread};
+
+fn main() {
+    let spinlock = Arc::new(AtomicUsize::new(1));
+
+    let spinlock_clone = Arc::clone(&spinlock);
+    let thread = thread::spawn(move|| {
+        spinlock_clone.store(0, Ordering::SeqCst);
+    });
+
+    // 等待其它线程释放锁
+    while spinlock.load(Ordering::SeqCst) != 0 {
+        hint::spin_loop();
+    }
+
+    if let Err(panic) = thread.join() {
+        println!("Thread had an error: {:?}", panic);
+    }
+}
+```
+
+- Atomic 能替代锁吗
+    - 对于复杂的场景下，锁的使用简单粗暴，不容易有坑
+    - std::sync::atomic包中仅提供了数值类型的原子操作：AtomicBool, AtomicIsize, AtomicUsize, AtomicI8, AtomicU16等，而锁可以应用于各种类型
+    - 在有些情况下，必须使用锁来配合，例如上一章节中使用Mutex配合Condvar
+- Atomic 的应用场景：高性能库 基础库
+    - 无锁(lock free)数据结构
+    - 全局变量，例如全局自增 ID, 在后续章节会介绍
+    - 跨线程计数器，例如可以用于统计指标
+
+## Send & Sync 特征
+Send和Sync是 Rust 安全并发的重中之重，但是实际上它们只是标记特征(marker trait，该特征未定义任何行为，因此非常适合用于标记), 来看看它们的作用：
+- 实现Send的类型可以在线程间安全的传递其所有权
+- 实现Sync的类型可以在线程间安全的共享(通过引用)(多线程间共享一个值)
+
+```rust
+// Rc源码片段:
+// !代表移除特征的相应实现，代码中Rc<T>的Send和Sync特征被特地移除了实现
+impl<T: ?Sized> !marker::Send for Rc<T> {}
+impl<T: ?Sized> !marker::Sync for Rc<T> {}
+
+// Arc源码片段
+unsafe impl<T: ?Sized + Sync + Send> Send for Arc<T> {}
+unsafe impl<T: ?Sized + Sync + Send> Sync for Arc<T> {}
+```
+- Rust 中绝大多数类型都实现了Send和Sync，除了以下几个(事实上不止这几个，只不过它们比较常见):
+    - 裸指针两者都没实现，因为它本身就没有任何安全保证
+    - UnsafeCell不是Sync，因此Cell和RefCell也不是
+    - Rc两者都没实现(因为内部的引用计数器不是线程安全的)
+
+- 实现Send的类型可以在线程间安全的传递其所有权, 实现Sync的类型可以在线程间安全的共享(通过引用)
+- 绝大部分类型都实现了Send和Sync，常见的未实现的有：裸指针、Cell、RefCell、Rc 等
+- 可以为自定义类型实现Send和Sync，但是需要unsafe代码块
+- 可以为部分 Rust 中的类型实现Send、Sync，但是需要使用newtype，例如文中的裸指针例子
+```rust
+#[derive(Debug)]
+struct MyBox(*const u8);
+unsafe impl Send for MyBox {}
+unsafe impl Sync for MyBox {}
+```
