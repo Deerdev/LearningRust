@@ -1465,8 +1465,347 @@ union MyUnion {
 [Unsafe Rust: How and when (not) to use it - LogRocket Blog](https://blog.logrocket.com/unsafe-rust-how-and-when-not-to-use-it/)
 
 # Macro 宏编程
+- `println!` 后面跟着的是 ()，而 `vec!` 后面跟着的是 []，这是因为宏的参数可以使用 `()、[] 以及 {}`:
+- 在 Rust 中宏分为两大类：声明式宏( declarative macros ) macro_rules! 和三种过程宏( procedural macros ):
+    - `#[derive]`，在之前多次见到的派生宏，可以为目标结构体或枚举派生指定的代码，例如 Debug 特征
+    - 类属性宏(Attribute-like macro)，用于为目标添加自定义的属性
+    - 类函数宏(Function-like macro)，看上去就像是函数调用
+
+相比函数的优点：
+- 元编程：通过一种代码来生成另一种代码
+- 支持可变参数：函数限制参数类型
+
+## 声明式宏 macro_rules!
+- 声明式宏允许我们写出类似 match 的代码。match 表达式是一个控制结构，其接收一个表达式，然后将表达式的结果与多个模式进行匹配，一旦匹配了某个模式，则该模式相关联的代码将被执行
+- 宏里的值是一段 Rust 源代码(字面量)，模式用于跟这段源代码的结构相比较，一旦匹配，传入宏的那段源代码将被模式关联的代码所替换，最终实现宏展开。值得注意的是，所有的这些都是在编译期发生，并没有运行期的性能损耗。
+
+- `#[macro_export]` 注释将宏进行了导出
+- 使用 `macro_rules!` 进行了宏定义
+- vec 的定义结构跟 match 表达式很像，但这里我们只有一个分支，其中包含一个模式 `( $( $x:expr ),* )`，跟模式相关联的代码就在 => 之后。一旦模式成功匹配，那这段相关联的代码就会替换传入的源代码。
 
 
+```rust
+-   // vec!
+#[macro_export]
+macro_rules! vec {
+    ( $( $x:expr ),* ) => {
+        {
+            let mut temp_vec = Vec::new();
+            $(
+                temp_vec.push($x);
+            )*
+            temp_vec
+        }
+    };
+}
+```
+## 模式解析
+- 虽然宏和 match 都称之为模式，但是前者跟后者的模式规则是不同的
+- `( $( $x:expr ),* )` 的含义。
+    - 首先，我们使用圆括号 `()` 将整个宏模式包裹其中。紧随其后的是 `$()`，跟括号中模式相匹配的值(传入的 Rust 源代码)会被捕获，然后用于代码替换。在这里，模式 `$x:expr` 会匹配任何 Rust 表达式并给予该模式一个名称：`$x`。
+    - `$()` 之后的逗号说明在 `$()` 所匹配的代码的后面会有一个可选的逗号分隔符，紧随逗号之后的 `*` 说明 `*` 之前的模式会被匹配零次或任意多次(类似正则表达式)。
+
+- 当我们使用 `vec![1, 2, 3]` 来调用该宏时，`$x` 模式将被匹配三次，分别是 1、2、3。为了帮助大家巩固，我们再来一起过一下：
+    - `$(`) 中包含的是模式 `$x:expr`，该模式中的 expr 表示会匹配任何 Rust 表达式，并给予该模式一个名称 `$x`
+    - 因此 `$x` 模式可以跟整数 1 进行匹配，也可以跟字符串 "hello" 进行匹配: vec!["hello", "world"]
+    - `$()` 之后的逗号，意味着1 和 2 之间可以使用逗号进行分割，也意味着 3 既可以没有逗号，也可以有逗号：vec![1, 2, 3,]
+    - `*` 说明之前的模式可以出现零次也可以任意次，这里出现了三次
+
+```rust
+{
+    {
+        let mut temp_vec = Vec::new();
+        $(
+            temp_vec.push($x);
+        )*
+        temp_vec
+    }
+};
+/*
+{
+    let mut temp_vec = Vec::new();
+    temp_vec.push(1);
+    temp_vec.push(2);
+    temp_vec.push(3);
+    temp_vec
+}
+*/
+```
+- [The Little Book of Rust Macros](https://veykril.github.io/tlborm/)
+
+## 用过程宏为属性标记生成代码
+过程宏 ( procedural macros )，从形式上来看，过程宏跟函数较为相像，但过程宏是使用源代码作为输入参数，基于代码进行一系列操作后，再输出一段全新的代码。
+- 注意，过程宏中的 derive 宏输出的代码并不会替换之前的代码，这一点与声明宏有很大的不同！
+
+当创建过程宏时，它的定义**必须要放入一个独立的包中**，且包的类型也是特殊的，这么做的原因相当复杂，大家只要知道这种限制在未来可能会有所改变即可。
+- 事实上，根据[这个说法](https://www.reddit.com/r/rust/comments/t1oa1e/what_are_the_complex_technical_reasons_why/)，过程宏放入独立包的原因在于它必须先被编译后才能使用，如果过程宏和使用它的代码在一个包，就必须先单独对过程宏的代码进行编译，然后再对我们的代码进行编译，但悲剧的是 Rust 的编译单元是包，因此你无法做到这一点。
+- 用于定义过程宏的函数 some_name 使用 TokenStream 作为输入参数，并且返回的也是同一个类型。TokenStream 是在 proc_macro 包中定义的，顾名思义，它代表了一个 Token 序列。
+    - sync: https://docs.rs/syn/1.0.98/syn/struct.DeriveInput.html
+    - quote: https://docs.rs/quote/latest/quote/
 
 
+```rust
+use proc_macro;
 
+#[proc_macro_derive(HelloMacro)]
+pub fn some_name(input: TokenStream) -> TokenStream {}
+```
+```rust
+/// 1. 自定义 derive 过程宏 `#[derive(HelloMacro)]`
+pub trait HelloMacro {
+    fn hello_macro();
+}
+// 创建单独的 lib 包，名称必须以 `_derive` 结尾 `cargo new hello_macro_derive --lib`
+// syn 和 quote 库
+// - syn 将字符串形式的 Rust 代码解析为一个 AST 树的数据结构，该数据结构可以在随后的 impl_hello_macro 函数中进行操作
+// - 操作的结果又会被 quote 包转换回 Rust 代码
+extern crate proc_macro;
+
+use proc_macro::TokenStream;
+use quote::quote;
+use syn;
+
+#[proc_macro_derive(HelloMacro)]
+pub fn hello_macro_derive(input: TokenStream) -> TokenStream {
+    // 基于 input 构建 AST 语法树
+    let ast = syn::parse(input).unwrap();
+
+    // 构建特征实现代码
+    impl_hello_macro(&ast)
+}
+
+fn impl_hello_macro(ast: &syn::DeriveInput) -> TokenStream {
+    let name = &ast.ident;
+    let gen = quote! {
+        impl HelloMacro for #name {
+            fn hello_macro() {
+                println!("Hello, Macro! My name is {}!", stringify!(#name));
+            }
+        }
+    };
+    gen.into()
+}
+```
+其中 `stringify!` 是 Rust 提供的内置宏，可以将一个表达式(例如 1 + 2)在编译期转换成一个字符串字面值("1 + 2")，该字面量会直接打包进编译出的二进制文件中，具有 'static 生命周期。而 `format!` 宏会对表达式进行求值，最终结果是一个 String 类型。在这里使用 stringify! 有两个好处:
+- #name 可能是一个表达式，我们需要它的字面值形式
+- 可以减少一次 String 带来的内存分配
+
+## 类属性宏(Attribute-like macros)
+类属性过程宏跟 derive 宏类似，但是前者允许我们定义自己的属性。除此之外，derive 只能用于结构体和枚举，而类属性宏可以用于其它类型项
+
+与 derive 宏不同，类属性宏的定义函数有两个参数：
+- 第一个参数时用于说明属性包含的内容：Get, "/" 部分
+- 第二个是属性所标注的类型项，在这里是 fn index() {...}，注意，函数体也被包含其中
+
+```rust
+#[route(GET, "/")]
+fn index() {}
+
+
+#[proc_macro_attribute]
+pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {}
+```
+
+## 类函数宏(Function-like macros)
+类函数宏可以让我们定义像函数那样调用的宏，从这个角度来看，它跟声明宏 macro_rules 较为类似。
+
+区别在于，macro_rules 的定义形式与 match 匹配非常相像，而类函数宏的定义形式则类似于之前讲过的两种过程宏:
+- 为何我们不使用声明宏 macro_rules 来定义呢？原因是这里需要对 SQL 语句进行解析并检查其正确性，这个复杂的过程是 macro_rules 难以对付的，而过程宏相比起来就会灵活的多。
+```rust
+#[proc_macro]
+pub fn sql(input: TokenStream) -> TokenStream {}
+
+// 使用形式则类似于函数调用:
+let sql = sql!(SELECT * FROM posts WHERE id=1);
+```
+
+[补充学习资料](#补充学习资料)
+
+1.  [dtolnay/proc-macro-workshop](https://github.com/dtolnay/proc-macro-workshop)，学习如何编写过程宏
+2.  [The Little Book of Rust Macros](https://veykril.github.io/tlborm/)，学习如何编写声明宏 `macro_rules!`
+3.  [syn](https://crates.io/crates/syn) 和 [quote](https://crates.io/crates/quote) ，用于编写过程宏的包，它们的文档有很多值得学习的东西
+4.  [Structuring, testing and debugging procedural macro crates](https://www.reddit.com/r/rust/comments/rjumsg/any_good_resources_for_learning_rust_macros/)，从测试、debug、结构化的角度来编写过程宏
+5.  [blog.turbo.fish](https://blog.turbo.fish)，里面的过程宏系列文章值得一读
+6.  [Rust 宏小册中文版](https://zjp-cn.github.io/tlborm/)，非常详细的解释了宏各种知识
+
+
+# async
+选型：
+- 有大量 IO 任务需要并发运行时，选 async 模型
+- 有部分 IO 任务需要并发运行时，选多线程，如果想要降低线程创建和销毁的开销，可以使用线程池
+- 有大量 CPU 密集任务需要并行运行时，例如并行计算，选多线程模型，且让线程数等于或者稍大于 CPU 核心数
+- 无所谓时，统一选多线程
+
+若大家使用 tokio，那 CPU 密集的任务尤其需要用线程的方式去处理，例如使用 `spawn_blocking` 创建一个阻塞的线程取完成相应 CPU 密集任务。
+- 使用 spawn_blocking 后，会创建一个单独的 OS 线程，该线程并不会被 tokio 所调度( 被 OS 所调度 )，因此它所执行的 CPU 密集任务也不会导致 tokio 调度的那些异步任务被饿死
+
+## async模式下的问题
+- Rust 不允许你在特征中声明 async 函数(可以通过三方
+- 在同步( synchronous )代码中使用的一些语言特性在 async 中可能将无法再使用
+
+## 使用 .await
+与`block_on`不同，`.await`并不会阻塞当前的线程，而是异步的等待Future A的完成，在等待的过程中，该线程还可以继续执行其它的Future B，最终实现了并发处理的效果
+```rust
+use futures::executor::block_on;
+
+async fn hello_world() {
+    // async中调用async 方法
+    hello_cat().await;
+    println!("hello, world!");
+}
+
+async fn hello_cat() {
+    println!("hello, kitty!");
+}
+fn main() {
+    let future = hello_world();
+    // block_on 同步阻塞
+    block_on(future);
+}
+```
+- `join!`可以并发的处理和等待多个`Future`，若`f1 Future`被阻塞，那`f2 Future`可以拿过线程的所有权继续执行。若`f2`也变成阻塞状态，那`f1`又可以再次拿回线程所有权，继续执行。
+- 若两个都被阻塞，那么`async main`会变成阻塞状态，然后让出线程所有权，并将其交给`main`函数中的`block_on`执行器
+```rust
+futures::join!(f1, f2);
+```
+
+
+## Pin
+- Pin 是一个结构体
+    - 可以被 Pin 住的值实现的特征是 `!Unpin`
+- Unpin 是一个 Trait
+    - 如果实现了 Unpin 特征，就不能被 Pin 了？其实，还是可以 Pin 的，毕竟它只是一个结构体，你可以随意使用，但是**不再有任何效果而已**，该值一样可以被移动！(无效果)
+    - 一个类型如果不能被移动，它必须实现 !Unpin 特征
+- Unpin 与之前章节学过的 Send/Sync 进行下对比
+    - 都是标记特征(marker trait)，该特征未定义任何行为，非常适用于标记
+    - 都可以通过`!`语法去除实现
+    - 绝大多数情况都是自动实现, 无需我们的操心
+
+Pin可以加个内存固定在栈上和堆上
+```rust
+// 固定到栈上
+#![allow(unused)]
+fn main() {
+use std::pin::Pin;
+use std::marker::PhantomPinned;
+
+#[derive(Debug)]
+struct Test {
+    a: String,
+    b: *const String,
+    _marker: PhantomPinned,
+}
+
+
+impl Test {
+    fn new(txt: &str) -> Self {
+        Test {
+            a: String::from(txt),
+            b: std::ptr::null(),
+            _marker: PhantomPinned, // 这个标记可以让我们的类型自动实现特征`!Unpin`
+        }
+    }
+
+    fn init(self: Pin<&mut Self>) {
+        let self_ptr: *const String = &self.a;
+        let this = unsafe { self.get_unchecked_mut() };
+        this.b = self_ptr;
+    }
+
+    fn a(self: Pin<&Self>) -> &str {
+        &self.get_ref().a
+    }
+
+    fn b(self: Pin<&Self>) -> &String {
+        assert!(!self.b.is_null(), "Test::b called without Test::init being called first");
+        unsafe { &*(self.b) }
+    }
+}
+}
+```
+
+```rust
+// 固定到堆上
+use std::pin::Pin;
+use std::marker::PhantomPinned;
+
+#[derive(Debug)]
+struct Test {
+    a: String,
+    b: *const String,
+    _marker: PhantomPinned,
+}
+
+impl Test {
+    fn new(txt: &str) -> Pin<Box<Self>> {
+        let t = Test {
+            a: String::from(txt),
+            b: std::ptr::null(),
+            _marker: PhantomPinned,
+        };
+        let mut boxed = Box::pin(t);
+        let self_ptr: *const String = &boxed.as_ref().a;
+        unsafe { boxed.as_mut().get_unchecked_mut().b = self_ptr };
+
+        boxed
+    }
+
+    fn a(self: Pin<&Self>) -> &str {
+        &self.get_ref().a
+    }
+
+    fn b(self: Pin<&Self>) -> &String {
+        unsafe { &*(self.b) }
+    }
+}
+
+pub fn main() {
+    let test1 = Test::new("test1");
+    let test2 = Test::new("test2");
+
+    println!("a: {}, b: {}",test1.as_ref().a(), test1.as_ref().b());
+    println!("a: {}, b: {}",test2.as_ref().a(), test2.as_ref().b());
+}
+
+```
+## 将固定住的 Future 变为 Unpin
+- async 函数返回的 Future 默认就是 !Unpin 的，但是，在实际应用中，一些函数会要求它们处理的 Future 是 Unpin 的
+- 若你使用的 Future 是 !Unpin 的，必须要使用以下的方法先将 Future 进行固定:
+    - `Box::pin`， 创建一个 `Pin<Box<T>>`
+    - `pin_utils::pin_mut!`， 创建一个 `Pin<&mut T>`
+    - 固定后获得的 `Pin<Box<T>>` 和 `Pin<&mut T>` 既可以用于 Future ，又会自动实现 Unpin。
+```rust
+fn main() {
+    use pin_utils::pin_mut; // `pin_utils` 可以在crates.io中找到
+
+    // 函数的参数是一个`Future`，但是要求该`Future`实现`Unpin`
+    fn execute_unpin_future(x: impl Future<Output = ()> + Unpin) { /* ... */ }
+
+    let fut = async { /* ... */ };
+    // 下面代码报错: 默认情况下，`fut` 实现的是`!Unpin`，并没有实现`Unpin`
+    // execute_unpin_future(fut);
+
+    // 使用`Box`进行固定
+    let fut = async { /* ... */ };
+    let fut = Box::pin(fut);
+    execute_unpin_future(fut); // OK
+
+    // 使用`pin_mut!`进行固定
+    let fut = async { /* ... */ };
+    pin_mut!(fut);
+    execute_unpin_future(fut); // OK
+}
+```
+
+
+总结:
+- 若 `T: Unpin` ( Rust 类型的默认实现)，那么 Pin<'a, T> 跟 &'a mut T 完全相同，也就是 Pin 将没有任何效果, 该移动还是照常移动
+- 绝大多数标准库类型都实现了 Unpin ，事实上，对于 Rust 中你能遇到的绝大多数类型，该结论依然成立 ，其中一个例外就是：async/await 生成的 Future 没有实现 Unpin
+- 你可以通过以下方法为自己的类型添加 !Unpin 约束：
+- 使用文中提到的 `std::marker::PhantomPinned`
+- 使用nightly 版本下的 feature flag
+- 可以将值固定到栈上，也可以固定到堆上
+- 将 !Unpin 值固定到栈上需要使用 unsafe
+- 将 !Unpin 值固定到堆上无需 unsafe ，可以通过 `Box::pin` 来简单的实现
+- 当固定类型T: !Unpin时，你需要保证数据从被固定到被 drop 这段时期内，其内存不会变得非法或者被重用
+- `Box::pin` , `Pin::as_mut`, `Pin::new_unchecke` 和 `Pin::get_unchecked_mut` 等关联函数
