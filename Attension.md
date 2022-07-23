@@ -1799,7 +1799,7 @@ fn main() {
 
 
 总结:
-- 若 `T: Unpin` ( Rust 类型的默认实现)，那么 Pin<'a, T> 跟 &'a mut T 完全相同，也就是 Pin 将没有任何效果, 该移动还是照常移动
+- 若 `T: Unpin` ( Rust 类型的默认实现)，那么 `Pin<'a, T>` 跟 `&'a mut T` 完全相同，也就是 Pin 将没有任何效果, 该移动还是照常移动
 - 绝大多数标准库类型都实现了 Unpin ，事实上，对于 Rust 中你能遇到的绝大多数类型，该结论依然成立 ，其中一个例外就是：async/await 生成的 Future 没有实现 Unpin
 - 你可以通过以下方法为自己的类型添加 !Unpin 约束：
 - 使用文中提到的 `std::marker::PhantomPinned`
@@ -1808,4 +1808,392 @@ fn main() {
 - 将 !Unpin 值固定到栈上需要使用 unsafe
 - 将 !Unpin 值固定到堆上无需 unsafe ，可以通过 `Box::pin` 来简单的实现
 - 当固定类型T: !Unpin时，你需要保证数据从被固定到被 drop 这段时期内，其内存不会变得非法或者被重用
-- `Box::pin` , `Pin::as_mut`, `Pin::new_unchecke` 和 `Pin::get_unchecked_mut` 等关联函数
+- Pin 主要用来🪄固定指针指向的值🪄不被移动的，例如 Pin<&mut T>，Pin<&T>， Pin<Box> 都保证 T 不会移动，在 Rust 中，能够被移动内存代表着拥有其所有权或可变引用，而 Pin 可以处理这个问题。所以，Pin 应用场景一般用于结构中出现了自引用时使用，Pin 的诞生就是因为 async/.await 内部编译器产生代码出现了自引用的问题。
+    - `Box::pin` , `Pin::as_mut`, `Pin::new_unchecke` 和 `Pin::get_unchecked_mut` 等关联函数        
+
+
+## async 生命周期
+- 当 x 依然有效时， 该 Future 就必须继续等待( .await ), 也就是说x 必须比 Future活得更久。
+```rust
+async fn foo(x: &u8) -> u8 { *x }
+
+// 上面的函数跟下面的函数是等价的:
+fn foo_expanded<'a>(x: &'a u8) -> impl Future<Output = u8> + 'a {
+    async move { *x }
+}
+
+// Future会在未来执行，所以x 必须活的够久
+fn bad() -> impl Future<Output = u8> {
+    let x = 5;
+    borrow_x(&x) // ERROR: `x` does not live long enough
+}
+fn good() -> impl Future<Output = u8> {
+    // 移动到 async 语句块内， 我们将它的生命周期扩展到 'static
+    async {
+        let x = 5;
+        borrow_x(&x).await
+    }
+}
+```
+- async move: async 允许我们使用 move 关键字来将环境中变量的所有权转移到语句块内，就像闭包那样
+    - 好处是你不再发愁该如何解决借用生命周期的问题
+    - 坏处就是无法跟其它代码实现对变量的共享
+
+```rust
+// 多个不同的 `async` 语句块可以访问同一个本地变量，只要它们在该变量的作用域内执行
+async fn blocks() {
+    let my_string = "foo".to_string();
+
+    let future_one = async {
+        // ...
+        println!("{my_string}");
+    };
+    let future_two = async {
+        // ...
+        println!("{my_string}");
+    };
+
+    // 运行两个 Future 直到完成
+    let ((), ()) = futures::join!(future_one, future_two);
+}
+
+// 由于`async move`会捕获环境中的变量，因此只有一个`async move`语句块可以访问该变量，
+// 但是它也有非常明显的好处： 变量可以转移到返回的 Future 中，不再受借用生命周期的限制
+fn move_block() -> impl Future<Output = ()> {
+    let my_string = "foo".to_string();
+    async move {
+        // ...
+        println!("{my_string}");
+    }
+}
+```
+- 当.await 遇见多线程执行器:
+    - 当使用多线程 Future 执行器( executor )时， Future 可能会在线程间被移动，因此 async 语句块中的变量必须要能在线程间传递。 
+        - 至于 Future 会在线程间移动的原因是：它内部的任何.await都可能导致它被切换到一个新线程上去执行。
+    - 由于需要在**多线程**环境使用，意味着 Rc、 RefCell 、没有实现 Send 的所有权类型、没有实现 Sync 的引用类型，它们都是不安全的，因此无法被使用
+    - 在 .await 时使用普通的锁也不安全，例如 Mutex; 我们需要使用 futures 包下的锁 `futures::lock` 来替代 Mutex 完成任务。
+
+## Stream 流处理
+- Stream 特征类似于 Future 特征，但是前者在完成前可以生成多个值，这种行为跟标准库中的 Iterator 特征倒是颇为相似。
+- 关于 Stream 的一个常见例子是消息通道（futures 包中的）的消费者 `Receiver`。每次有消息从 Send 端发送后，它都可以接收到一个 Some(val) 值， 一旦 Send 端关闭(drop)，且消息通道中没有消息后，它会接收到一个 None 值。
+
+```rust
+trait Stream {
+    // Stream生成的值的类型
+    type Item;
+
+    // 尝试去解析Stream中的下一个值,
+    // 若无数据，返回`Poll::Pending`, 若有数据，返回 `Poll::Ready(Some(x))`, `Stream`完成则返回 `Poll::Ready(None)`
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>)
+        -> Poll<Option<Self::Item>>;
+}
+
+async fn send_recv() {
+    const BUFFER_SIZE: usize = 10;
+    let (mut tx, mut rx) = mpsc::channel::<i32>(BUFFER_SIZE);
+
+    tx.send(1).await.unwrap();
+    tx.send(2).await.unwrap();
+    drop(tx);
+
+    // `StreamExt::next` 类似于 `Iterator::next`, 但是前者返回的不是值，而是一个 `Future<Output = Option<T>>`，
+    // 因此还需要使用`.await`来获取具体的值
+    assert_eq!(Some(1), rx.next().await);
+    assert_eq!(Some(2), rx.next().await);
+    assert_eq!(None, rx.next().await);
+}
+```
+- 迭代和并发: 跟迭代器类似，我们也可以迭代一个 Stream
+    - 例如使用map，filter，fold方法，以及它们的遇到错误提前返回的版本： try_map，try_filter，try_fold。
+    - for 循环无法在这里使用，但是命令式风格的循环`while let`是可以用的，同时还可以使用next 和 try_next 方法:
+
+```rust
+async fn sum_with_next(mut stream: Pin<&mut dyn Stream<Item = i32>>) -> i32 {
+    use futures::stream::StreamExt; // 引入 next
+    let mut sum = 0;
+    while let Some(item) = stream.next().await {
+        sum += item;
+    }
+    sum
+}
+
+async fn sum_with_try_next(
+    mut stream: Pin<&mut dyn Stream<Item = Result<i32, io::Error>>>,
+) -> Result<i32, io::Error> {
+    use futures::stream::TryStreamExt; // 引入 try_next
+    let mut sum = 0;
+    while let Some(item) = stream.try_next().await? {
+        sum += item;
+    }
+    Ok(sum)
+}
+```
+- 上面代码是一次处理一个值的模式; 如果你选择一次处理一个值的模式，可能会造成无法并发，这就失去了异步编程的意义
+- 因此，如果可以的话我们还是要选择从一个 Stream 并发处理多个值的方式，通过 `for_each_concurrent` 或 `try_for_each_concurrent` 方法来实现:
+```rust
+async fn jump_around(
+    mut stream: Pin<&mut dyn Stream<Item = Result<u8, io::Error>>>,
+) -> Result<(), io::Error> {
+    use futures::stream::TryStreamExt; // 引入 `try_for_each_concurrent`
+    const MAX_CONCURRENT_JUMPERS: usize = 100;
+
+    stream.try_for_each_concurrent(MAX_CONCURRENT_JUMPERS, |num| async move {
+        jump_n_times(num).await?;
+        report_n_jumps(num).await?;
+        Ok(())
+    }).await?;
+
+    Ok(())
+}
+```
+## 使用join!和select!同时运行多个 Future
+- join!宏， 它允许我们同时等待多个不同 Future 的完成，且可以并发地运行这些 Future
+    - 如果希望同时运行一个数组里的多个异步任务，可以使用 `futures::future::join_all` 方法 (传参是数组)
+```rust
+use futures::join;
+
+async fn enjoy_book_and_music() -> (Book, Music) {
+    let book_fut = enjoy_book();
+    let music_fut = enjoy_music();
+    // join!会返回一个元组，里面的值是对应的Future执行结束后输出的值。
+    join!(book_fut, music_fut)
+}
+```
+
+- `try_join!`: 当某一个 Future 报错后就立即停止所有 Future 的执行; 特别是当 Future 返回 Result 时
+```rust
+use futures::try_join;
+
+async fn get_book() -> Result<Book, String> { /* ... */ Ok(Book) }
+async fn get_music() -> Result<Music, String> { /* ... */ Ok(Music) }
+
+async fn get_book_and_music() -> Result<(Book, Music), String> {
+    let book_fut = get_book();
+    let music_fut = get_music();
+    try_join!(book_fut, music_fut)
+}
+
+//! 传给 try_join! 的所有 Future 都必须拥有相同的错误类型。如果错误类型不同，可以考虑使用来自 futures::future::TryFutureExt 模块的 map_err和err_info方法将错误进行转换:
+use futures::{
+    future::TryFutureExt,
+    try_join,
+};
+
+async fn get_book() -> Result<Book, ()> { /* ... */ Ok(Book) }
+async fn get_music() -> Result<Music, String> { /* ... */ Ok(Music) }
+
+async fn get_book_and_music() -> Result<(Book, Music), String> {
+    let book_fut = get_book().map_err(|()| "Unable to get book".to_string());
+    let music_fut = get_music();
+    try_join!(book_fut, music_fut)
+}
+```
+
+- `futures::select!`: 如果你想同时等待多个 Future ，且任何一个 Future 结束后，都可以立即被处理，可以考虑使用; (只会执行先到的任务，未完成的任务就不会执行了，类似 go 的 select)
+    - join! 只有等所有 Future 结束后，才能集中处理结果，
+```rust
+use futures::{
+    future::FutureExt, // for `.fuse()`
+    pin_mut,
+    select,
+};
+
+async fn task_one() { /* ... */ }
+async fn task_two() { /* ... */ }
+
+async fn race_tasks() {
+    let t1 = task_one().fuse();
+    let t2 = task_two().fuse();
+
+    pin_mut!(t1, t2);
+
+    // 无论两者哪个先完成，都会调用对应的 println! 打印相应的输出，
+    // 然后函数结束且不会等待另一个任务的完成。
+    select! {
+        () = t1 => println!("任务1率先完成"),
+        () = t2 => println!("任务2率先完成"),
+    }
+}
+```
+- select!还支持 default 和 complete 分支:
+    - complete 分支当所有的 Future 和 Stream 完成后才会被执行，它往往配合loop使用，loop用于循环完成所有的 Future
+    - default分支，若没有任何 Future 或 Stream 处于 Ready 状态， 则该分支会被立即执行
+```rust
+pub fn main() {
+    let mut a_fut = future::ready(4);
+    let mut b_fut = future::ready(6);
+    let mut total = 0;
+
+    loop {
+        select! {
+            a = a_fut => total += a,
+            b = b_fut => total += b,
+            complete => break,
+            default => panic!(), // 该分支永远不会运行，因为`Future`会先运行，然后是`complete`
+        };
+    }
+    assert_eq!(total, 10);
+}
+```
+### 跟 Unpin 和 FusedFuture 进行交互
+.fuse()方法可以让 Future 实现 `FusedFuture` 特征， 而 pin_mut! 宏会为 Future 实现 `Unpin`特征，这两个特征恰恰是使用 select 所必须的:
+- Unpin，由于 select 不会通过拿走所有权的方式使用Future，而是通过可变引用的方式去使用，这样当 select 结束后，该 Future 若没有被完成，它的所有权还可以继续被其它代码使用。
+- FusedFuture的原因跟上面类似，当 Future 一旦完成后，那 select 就不能再对其进行轮询使用。Fuse意味着熔断，相当于 Future 一旦完成，再次调用poll会直接返回Poll::Pending。
+
+> 只有实现了FusedFuture，select 才能配合 loop 一起使用。假如没有实现，就算一个 Future 已经完成了，它依然会被 select 不停的轮询执行。
+
+
+Stream 稍有不同，它们使用的特征是 `FusedStream`。 通过`.fuse()`(也可以手动实现)实现了该特征的 Stream，对其调用`.next()` 或 `.try_next()`方法可以获取实现了FusedFuture特征的Future:
+```rust
+use futures::{
+    stream::{Stream, StreamExt, FusedStream},
+    select,
+};
+
+async fn add_two_streams(
+    mut s1: impl Stream<Item = u8> + FusedStream + Unpin,
+    mut s2: impl Stream<Item = u8> + FusedStream + Unpin,
+) -> u8 {
+    let mut total = 0;
+
+    loop {
+        let item = select! {
+            x = s1.next() => x,
+            x = s2.next() => x,
+            complete => break,
+        };
+        if let Some(next_num) = item {
+            total += next_num;
+        }
+    }
+
+    total
+}
+```
+
+准确的说来自`变量名/路径`的future要求其实现Unpin+FusedFuture，对于来自表达式的future可以放宽Unpin的限制。
+```rust
+// Ok! Unpin+FusedFuture
+let t1 = task_one().fuse();
+let t2 = task_two().fuse();
+pin_mut!(t1, t2);
+select! {
+    () = t1 => println!("任务1率先完成"),
+    () = t2 => println!("任务2率先完成"),
+}
+
+// Ok! only FusedFuture
+select! {
+    () = task_one().fuse() => println!("任务1率先完成"),
+    () = task_two().fuse() => println!("任务2率先完成"),
+}
+```
+## 在 select 循环中并发
+一个很实用但又鲜为人知的函数是 `Fuse::terminated()` ，可以使用它构建一个空的 Future ，可以先创建一个空的，后面再赋值
+
+考虑以下场景：当你要在select循环中运行一个任务，但是该任务却是在select循环内部创建时，上面的函数就非常好用了。
+```rust
+use futures::{
+    future::{Fuse, FusedFuture, FutureExt},
+    stream::{FusedStream, Stream, StreamExt},
+    pin_mut,
+    select,
+};
+
+async fn get_new_num() -> u8 { /* ... */ 5 }
+
+async fn run_on_new_num(_: u8) { /* ... */ }
+
+async fn run_loop(
+    mut interval_timer: impl Stream<Item = ()> + FusedStream + Unpin,
+    starting_num: u8,
+) {
+    let run_on_new_num_fut = run_on_new_num(starting_num).fuse();
+    let get_new_num_fut = Fuse::terminated();
+    pin_mut!(run_on_new_num_fut, get_new_num_fut);
+    loop {
+        select! {
+            () = interval_timer.select_next_some() => {
+                // 定时器已结束，若`get_new_num_fut`没有在运行，就创建一个新的
+                if get_new_num_fut.is_terminated() {
+                    get_new_num_fut.set(get_new_num().fuse());
+                }
+            },
+            new_num = get_new_num_fut => {
+                // 收到新的数字 -- 创建一个新的`run_on_new_num_fut`并丢弃掉旧的
+                run_on_new_num_fut.set(run_on_new_num(new_num).fuse());
+            },
+            // 运行 `run_on_new_num_fut`
+            () = run_on_new_num_fut => {},
+            // 若所有任务都完成，直接 `panic`， 原因是 `interval_timer` 应该连续不断的产生值，而不是结束
+            //后，执行到 `complete` 分支
+            complete => panic!("`interval_timer` completed unexpectedly"),
+        }
+    }
+}
+```
+
+当某个 Future 有多个拷贝都需要同时运行时，可以使用 `FuturesUnordered` 类型。下面的例子跟上个例子大体相似，但是它会将 run_on_new_num_fut 的每一个拷贝都运行到完成，而不是像之前那样一旦创建新的就终止旧的。
+```rust
+use futures::{
+    future::{Fuse, FusedFuture, FutureExt},
+    stream::{FusedStream, FuturesUnordered, Stream, StreamExt},
+    pin_mut,
+    select,
+};
+
+async fn get_new_num() -> u8 { /* ... */ 5 }
+
+async fn run_on_new_num(_: u8) -> u8 { /* ... */ 5 }
+
+
+// 使用从 `get_new_num` 获取的最新数字 来运行 `run_on_new_num`
+//
+// 每当计时器结束后，`get_new_num` 就会运行一次，它会立即取消当前正在运行的`run_on_new_num` ,
+// 并且使用新返回的值来替换
+async fn run_loop(
+    mut interval_timer: impl Stream<Item = ()> + FusedStream + Unpin,
+    starting_num: u8,
+) {
+    let mut run_on_new_num_futs = FuturesUnordered::new();
+    run_on_new_num_futs.push(run_on_new_num(starting_num));
+    let get_new_num_fut = Fuse::terminated();
+    pin_mut!(get_new_num_fut);
+    loop {
+        select! {
+            () = interval_timer.select_next_some() => {
+                 // 定时器已结束，若`get_new_num_fut`没有在运行，就创建一个新的
+                if get_new_num_fut.is_terminated() {
+                    get_new_num_fut.set(get_new_num().fuse());
+                }
+            },
+            new_num = get_new_num_fut => {
+                 // 收到新的数字 -- 创建一个新的`run_on_new_num_fut` (并没有像之前的例子那样丢弃掉旧值)
+                run_on_new_num_futs.push(run_on_new_num(new_num));
+            },
+            // 运行 `run_on_new_num_futs`, 并检查是否有已经完成的
+            res = run_on_new_num_futs.select_next_some() => {
+                println!("run_on_new_num_fut returned {:?}", res);
+            },
+            // 若所有任务都完成，直接 `panic`， 原因是 `interval_timer` 应该连续不断的产生值，而不是结束
+            //后，执行到 `complete` 分支
+            complete => panic!("`interval_timer` completed unexpectedly"),
+        }
+    }
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
