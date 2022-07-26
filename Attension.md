@@ -1,3 +1,18 @@
+# 指针
+- 原始指针`* mut T` `* const T`
+```rust
+fn main(){
+    let mut x=10;
+    let ptr_x = &mut x as *mut i32; 
+    let y =Box::new(20); 
+    let ptry = &*y as *const i32; 
+    unsafe {
+        *ptr_x += *ptr_y; 
+    }
+    assert eq!(x, 30);
+}
+```
+
 
 # 借用和引用 (06)
 - 不可变引用：`&String` 指针参数算借用，不拥有，不能修改
@@ -51,6 +66,11 @@ fn read(f: &mut File, save_to: &mut Vec<u8>) -> ! {
     - `let longer_delimiter = r###"A string with "# in it. And even "##!"###;`
         - 如果还是有歧义，可以继续增加，没有限制
 
+# 元组
+- 可以存放不同类型
+- `(1,)` 只有一个元素需要逗号区分
+
+
 # 结构体
 - 初始化实例时，每个字段都需要进行初始化；顺序不要求
 - 结构体体互相赋值：**user1 中赋值的字段会发生所有权转移**，基础类型字段不会转移，比如 int；所以会导致 user1.int 可以，user1.String 报错
@@ -70,6 +90,38 @@ let user2 = User {
     - 当结构体较大时，我们可能希望能够有更好的输出表现，此时可以使用 `{:#?}` 来替代 `{:?}`
     - `dbg!` 输出到标准错误输出 stderr，而 `println!` 输出到标准输出 stdout
         - `dbg!` 它最终还会把表达式值的所有权返回！可以重新赋值 `width = dbg!(30 * scale)`
+- 内存对齐
+    - rust 编译器会重排
+    - `#repr(c)` 不重排，按 C 语言对齐
+```rust
+struct A {
+    a: u8,
+    b: u32,
+    c: u16
+}
+fn main() {
+    println!("{:?}", std::mem::size_of::<A>()); // 8
+    let v = A {a:1, b:2, c:3};
+}
+/*
+编译器重排字段，优化内存占用
+struct A {
+    b: u32, // 4
+    c: u16, // 2
+    a: u8,  // 1  再补齐 1，对齐 4 
+    // 总 8 = 4 + 2 + 1 + 1
+}
+
+按 c 语言对齐：12 = 4 *3 按最长字段对齐
+#repr(c)
+struct A {
+    a: u8,
+    b: u32,
+    c: u16
+}
+*/
+```
+
 
 # 数组 array
 - array为数组，Vector为动态数组；关系类似 &str 和 String
